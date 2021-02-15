@@ -1,3 +1,29 @@
+# TDT4900 Computer Science, Master's Thesis
+### TDT4900 - Datateknologi, masteroppgave
+
+Autonomous vehicles
+
+Jostein and Martin
+
+This repository was forked from the Learning By Cheating GitHub repository.
+
+## How to run (Windows 10):
+- Download CARLA 0.9.11 from http://carla.org
+- Extract zip, and rename LICENSE to CARLA_LICENSE to avoid name crash
+- Clone this repository into the same folder
+```bash
+git init
+git remote add origin https://github.com/jostl/masters-thesis.git
+git pull origin master
+```
+- Create virtualenv and do pip install -r requirements.txt #TODO
+```bash
+virtualenv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+- Start CARLA.exe og kjør script osv...
+
 # Learning by Cheating
 
 This repo is the implemention of paper Learning by Cheating in CARLA 0.9.6.
