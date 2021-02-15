@@ -1212,10 +1212,10 @@ class ModuleInput(object):
         self.mouse_pos = pygame.mouse.get_pos()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                exit_game()
+                pygame.quit()
             elif event.type == pygame.KEYUP:
                 if self._is_quit_shortcut(event.key):
-                    exit_game()
+                    pygame.quit()
                 elif event.key == K_h or (event.key == K_SLASH and pygame.key.get_mods() & KMOD_SHIFT):
                     module_hud = module_manager.get_module(MODULE_HUD)
                     module_hud.help.toggle()
