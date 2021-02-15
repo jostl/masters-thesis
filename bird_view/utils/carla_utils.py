@@ -392,16 +392,18 @@ class CarlaWrapper(object):
         
 
     def spawn_vehicles(self):
-
+        SpawnActor = carla.command.SpawnActor
+        SetAutoPilot = carla.command.SetAutopilot
+        FutureActor = carla.command.FutureActor
         blueprints = self._blueprints.filter('vehicle.*')
         if self.disable_two_wheels:
             blueprints = [x for x in blueprints if int(x.get_attribute('number_of_wheels')) == 4]
         spawn_points = self._map.get_spawn_points()
-
+        batch = []
         for i in range(self.n_vehicles):
             blueprint = np.random.choice(blueprints)
             blueprint.set_attribute('role_name', 'autopilot')
-    
+
             if blueprint.has_attribute('color'):
                 color = np.random.choice(blueprint.get_attribute('color').recommended_values)
                 blueprint.set_attribute('color', color)
@@ -409,17 +411,16 @@ class CarlaWrapper(object):
             if blueprint.has_attribute('driver_id'):
                 driver_id = np.random.choice(blueprint.get_attribute('driver_id').recommended_values)
                 blueprint.set_attribute('driver_id', driver_id)
-            
-            vehicle = None
-            while vehicle is None:
-                vehicle = self._world.try_spawn_actor(blueprint, np.random.choice(spawn_points))
 
-            vehicle.set_autopilot(True)
-            #vehicle.start_dtcrowd()
-
+            spawn_point = spawn_points.pop(random.randrange(len(spawn_points)))
+            spawn_command = SpawnActor(blueprint, spawn_point).then(SetAutoPilot(FutureActor, True, 2000))
+            batch.append(spawn_command)
+        responses = self._client.apply_batch_sync(batch, True)
+        for response in responses:
+            vehicle = self._world.get_actor(response.actor_id)
             self._actor_dict['vehicle'].append(vehicle)
 
-        print ("spawned %d vehicles"%len(self._actor_dict['vehicle']))
+        print("spawned %d vehicles" % len(self._actor_dict['vehicle']))
 
     def spawn_pedestrians(self, n_pedestrians):
         SpawnActor = carla.command.SpawnActor
