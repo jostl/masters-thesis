@@ -8,6 +8,7 @@ Jostein and Martin
 This repository was forked from the Learning By Cheating GitHub repository.
 
 ## How to run (Windows 10):
+- We currently use Python 3.7, 64bit
 - Download CARLA 0.9.11 from http://carla.org
 - Extract zip, and rename LICENSE to CARLA_LICENSE to avoid name crash
 - Clone this repository into the same folder
@@ -16,6 +17,8 @@ git init
 git remote add origin https://github.com/jostl/masters-thesis.git
 git pull origin master
 ```
+- Add "C:\\...\WindowsNoEditor\PythonAPI" to PythonPath system environment variable (or
+ mark PythonAPI folder as Sources Root in PyCharm)
 - Create virtualenv and do pip install -r requirements.txt #TODO
 ```bash
 virtualenv venv
@@ -23,6 +26,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 - Start CARLA.exe og kjør script osv...
+- TODO checkpoints og weights...
 
 # Learning by Cheating
 
