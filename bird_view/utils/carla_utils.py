@@ -221,7 +221,7 @@ class PedestrianTracker(object):
                     loc = _loc
                     break
             
-            ped_controller.teleport_to_location(loc)
+            ped_controller.go_to_location(loc)
             print ("Teleported walker %d to %s"%(ped_id, loc))
         
 
