@@ -8,7 +8,7 @@ Jostein and Martin
 This repository was forked from the Learning By Cheating GitHub repository.
 
 ## How to run (Windows 10):
-- We currently use Python 3.7, 32bit
+- We currently use Python 3.7, 64bit
 - Download CARLA 0.9.11 from http://carla.org
 - Extract zip, and rename LICENSE to CARLA_LICENSE to avoid name crash
 - Clone this repository into the same folder
