@@ -392,6 +392,7 @@ class CarlaWrapper(object):
         
 
     def spawn_vehicles(self):
+        # TODO: IS this the optimal way for spawning vehicles?
         SpawnActor = carla.command.SpawnActor
         SetAutoPilot = carla.command.SetAutopilot
         FutureActor = carla.command.FutureActor
