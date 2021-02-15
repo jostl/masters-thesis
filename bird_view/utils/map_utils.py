@@ -890,7 +890,6 @@ class ModuleWorld(object):
 
     def _render_walkers(self, surface, list_w, world_to_pixel, from_snapshot=False):
         # print ("Walkers")
-        # TODO: What's the deal with pygame trying to render AIWalkerControllers?
         list_w = [walker for walker in list_w if walker[0].type_id != "controller.ai.walker"]
 
         for w in list_w:
