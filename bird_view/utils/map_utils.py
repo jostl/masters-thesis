@@ -224,7 +224,12 @@ class ModuleHUD (object):
     def _init_hud_params(self):
         fonts = [x for x in pygame.font.get_fonts() if 'mono' in x]
         default_font = 'ubuntumono'
-        mono = default_font if default_font in fonts else fonts[0]
+        if default_font in fonts:
+            mono = default_font
+        elif len(fonts) > 0:
+            mono = fonts[0]
+        else:
+            mono = "arial"
         mono = pygame.font.match_font(mono)
         self._font_mono = pygame.font.Font(mono, 14)
         self._header_font = pygame.font.SysFont('Arial', 14, True)
@@ -885,6 +890,7 @@ class ModuleWorld(object):
 
     def _render_walkers(self, surface, list_w, world_to_pixel, from_snapshot=False):
         # print ("Walkers")
+        list_w = [walker for walker in list_w if walker[0].type_id != "controller.ai.walker"]
 
         for w in list_w:
             # color = COLOR_PLUM_0
@@ -1206,10 +1212,10 @@ class ModuleInput(object):
         self.mouse_pos = pygame.mouse.get_pos()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                exit_game()
+                pygame.quit()
             elif event.type == pygame.KEYUP:
                 if self._is_quit_shortcut(event.key):
-                    exit_game()
+                    pygame.quit()
                 elif event.key == K_h or (event.key == K_SLASH and pygame.key.get_mods() & KMOD_SHIFT):
                     module_hud = module_manager.get_module(MODULE_HUD)
                     module_hud.help.toggle()
