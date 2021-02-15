@@ -222,10 +222,14 @@ class ModuleHUD (object):
         pass
 
     def _init_hud_params(self):
-        # TODO: What's the deal with these fonts?
         fonts = [x for x in pygame.font.get_fonts() if 'mono' in x]
-        default_font = 'arial'
-        mono = default_font
+        default_font = 'ubuntumono'
+        if default_font in fonts:
+            mono = default_font
+        elif len(fonts) > 0:
+            mono = fonts[0]
+        else:
+            mono = "arial"
         mono = pygame.font.match_font(mono)
         self._font_mono = pygame.font.Font(mono, 14)
         self._header_font = pygame.font.SysFont('Arial', 14, True)
