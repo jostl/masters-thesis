@@ -614,7 +614,10 @@ class CarlaWrapper(object):
             sensor.destroy()
 
         for actor_type in list(self._actor_dict.keys()):
-            self._client.apply_batch([carla.command.DestroyActor(x) for x in self._actor_dict[actor_type]])
+            for x in self._actor_dict[actor_type]:
+                if x is not None:
+                    x.destroy()
+
             self._actor_dict[actor_type].clear()
 
         self._actor_dict.clear()
