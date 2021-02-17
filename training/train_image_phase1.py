@@ -276,7 +276,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--log_iterations', default=1000)
-    parser.add_argument('--max_epoch', default=256)
+    parser.add_argument('--max_epoch', type=int, default=256)
 
     # Model
     parser.add_argument('--pretrained', action='store_true')
