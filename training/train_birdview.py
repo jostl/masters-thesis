@@ -194,7 +194,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--log_iterations', default=1000)
-    parser.add_argument('--max_epoch', default=1000)
+    parser.add_argument('--max_epoch', type=int, default=1000)
 
     # Dataset.
     parser.add_argument('--dataset_dir', default='/raid0/dian/carla_0.9.6_data')

@@ -12,6 +12,15 @@ import os
 import sys
 
 try:
+    sys.path.append(glob.glob('PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
+        sys.version_info.major,
+        sys.version_info.minor,
+        'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+except IndexError:
+    print("could not find the CARLA egg")
+    pass
+
+try:
     sys.path.append(glob.glob('../PythonAPI')[0])
     sys.path.append(glob.glob('../bird_view')[0])
 except IndexError as e:
@@ -21,7 +30,7 @@ import utils.bz_utils as bzu
 
 from models.birdview import BirdViewPolicyModelSS
 from models.image import ImagePolicyModelSS
-from train_util import one_hot
+from utils.train_utils import one_hot
 from utils.datasets.image_lmdb import get_image as load_data
 
 BACKBONE = 'resnet34'
@@ -267,7 +276,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--log_iterations', default=1000)
-    parser.add_argument('--max_epoch', default=256)
+    parser.add_argument('--max_epoch', type=int, default=256)
 
     # Model
     parser.add_argument('--pretrained', action='store_true')
@@ -284,6 +293,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=24)
     parser.add_argument('--speed_noise', type=float, default=0.0)
     parser.add_argument('--augment', choices=['medium', 'medium_harder', 'super_hard', 'None', 'custom'], default='super_hard')
+    parser.add_argument('--num_workers', type=int, default=0)
 
     # Optimizer.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -305,7 +315,7 @@ if __name__ == '__main__':
                 'gap': GAP,
                 'augment': parsed.augment,
                 'batch_aug': parsed.batch_aug,
-                'num_workers': 8,
+                'num_workers': parsed.num_workers,
                 },
             'model_args': {
                 'model': 'image_ss',
