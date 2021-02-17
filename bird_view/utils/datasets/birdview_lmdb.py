@@ -275,7 +275,7 @@ def get_birdview(
                 angle_jitter=_angle_jitter,
                 max_frames=_max_frames)
         data = Wrap(data, batch_size, _samples)
-        data = _dataloader(data, batch_size, 0)
+        data = _dataloader(data, batch_size, num_workers)
 
         return data
 

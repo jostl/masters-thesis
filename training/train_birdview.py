@@ -206,6 +206,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_frames', type=int, default=None)
     parser.add_argument('--cmd-biased', action='store_true', default=False)
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--num_workers', type=int, default=0)
 
     # Optimizer.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -229,6 +230,7 @@ if __name__ == '__main__':
                 'angle_jitter': parsed.angle_jitter,
                 'max_frames': parsed.max_frames,
                 'cmd_biased': parsed.cmd_biased,
+                'num_workers': parsed.num_workers
                 },
             'model_args': {
                 'model': 'birdview_dian',
