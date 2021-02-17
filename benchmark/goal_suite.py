@@ -39,6 +39,8 @@ class PointGoalSuite(BaseSuite):
         self._viz_queue = None
 
     def init(self, target=1, **kwargs):
+        if target >= len(self._map.get_spawn_points()):
+            print("hyper cringe, target:", target)
         self._target_pose = self._map.get_spawn_points()[target]
 
         super().init(**kwargs)

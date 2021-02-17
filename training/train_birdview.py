@@ -12,6 +12,14 @@ import os
 import sys
 
 try:
+    sys.path.append(glob.glob('PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
+        sys.version_info.major,
+        sys.version_info.minor,
+        'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+except IndexError:
+    print("could not find the CARLA egg")
+    pass
+try:
     sys.path.append(glob.glob('../PythonAPI')[0])
     sys.path.append(glob.glob('../bird_view')[0])
 except IndexError as e:
@@ -20,7 +28,7 @@ except IndexError as e:
 import utils.bz_utils as bzu
 
 from models.birdview import BirdViewPolicyModelSS
-from train_util import one_hot
+from utils.train_utils import one_hot
 from utils.datasets.birdview_lmdb import get_birdview as load_data
 
 
