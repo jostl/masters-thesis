@@ -10,6 +10,16 @@ import tqdm
 import glob
 import os
 import sys
+
+try:
+    sys.path.append(glob.glob('PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
+        sys.version_info.major,
+        sys.version_info.minor,
+        'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
+except IndexError:
+    print("could not find the CARLA egg")
+    pass
+
 import cv2
 
 try:
@@ -22,7 +32,7 @@ import utils.bz_utils as bzu
 
 from models.birdview import BirdViewPolicyModelSS
 from models.image import ImagePolicyModelSS
-from train_util import one_hot
+from utils.train_utils import one_hot
 from utils.datasets.image_lmdb import get_image as load_data
 
 BACKBONE = 'resnet34'
@@ -209,8 +219,6 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
             break
 
 
-
-
 def train(config):
     bzu.log.init(config['log_dir'])
     bzu.log.save_config(config)
@@ -245,7 +253,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--log_iterations', default=1000)
-    parser.add_argument('--max_epoch', default=2)
+    parser.add_argument('--max_epoch', type=int, default=2)
 
     # Model
     parser.add_argument('--pretrained', action='store_true')
@@ -259,6 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_dir', default='/raid0/dian/carla_0.9.6_data')
     parser.add_argument('--batch_size', type=int, default=96)
     parser.add_argument('--augment', choices=['None', 'medium', 'medium_harder', 'super_hard'], default=None)
+    parser.add_argument('--num_workers', type=int, default=0)
     
     # Optimizer.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -277,7 +286,7 @@ if __name__ == '__main__':
                 'n_step': N_STEP,
                 'gap': GAP,
                 'augment': parsed.augment,
-                'num_workers': 8,
+                'num_workers': parsed.num_workers,
                 },
             'model_args': {
                 'model': 'image_ss',
