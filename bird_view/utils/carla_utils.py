@@ -358,8 +358,11 @@ class CarlaWrapper(object):
         self._map = self._world.get_map()
 
         self._blueprints = self._world.get_blueprint_library()
+
         self._vehicle_bp = np.random.choice(self._blueprints.filter(vehicle_name))
         self._vehicle_bp.set_attribute('role_name', 'hero')
+        self._vehicle_bp.set_attribute('color', '255,0,0')
+
 
         self._tick = 0
         self._player = None
@@ -517,6 +520,7 @@ class CarlaWrapper(object):
             self.peds_tracker = PedestrianTracker(weakref.ref(self), self.pedestrians, self.ped_controllers, respawn_peds=self._respawn_peds)
     
             self.traffic_tracker = TrafficTracker(self._player, self._world)
+            self.move_spectator_to_player()
 
             ready = self.ready()
             if ready:
@@ -527,7 +531,14 @@ class CarlaWrapper(object):
         self._player.set_autopilot(False)
         #self._player.start_dtcrowd()
         self._actor_dict['player'].append(self._player)
-        
+
+    def move_spectator_to_player(self):
+        # move spectator to vehicle
+        spectator = self._world.get_spectator()
+        player_transform = self._player.get_transform()
+        pepe = carla.Location()
+        spectator.set_transform(carla.Transform(player_transform.location + carla.Location(z=50),
+                                                carla.Rotation(pitch=-90)))
 
     def ready(self, ticks=50):
         self.tick()
