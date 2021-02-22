@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from perception.utils.data_reading_perception import read_segmentation_images
-
 
 def get_segmentation_colors(n_classes, only_random=False, color_seed=73):
     random.seed(color_seed)
@@ -109,7 +107,6 @@ def show_predictions(model, inputs, device, n_displays=1, title=""):
 
 def plot_image(image, cmap="binary"):
     # todo: https://stackoverflow.com/questions/49643907/clipping-input-data-to-the-valid-range-for-imshow-with-rgb-data-0-1-for-floa
-    # det kommer en feilmelding som jeg ikke forstår, tror det går fint å ignorere den
     plt.imshow(image, cmap=cmap)
     plt.axis("off")
     # plt.show()
@@ -121,24 +118,3 @@ def plot_segmentation(image: np.ndarray, format="bgr"):
     semantic_image_rgb = get_segmentation_rgb_array(image, class_colors=class_colors) / 255
     plot_image(semantic_image_rgb, format)
     plt.show()
-
-
-def main():
-    segmentation_path = "data/perception/prepped/carla_test1/segmentation"
-    n_semantic_classes = 6
-    file_format = "png"
-    n_examples = 1
-    np_images = read_segmentation_images(segmentation_path, file_format=file_format,
-                                         max_n_instances=1, n_classes=n_semantic_classes)
-    class_colors = get_segmentation_colors(n_semantic_classes)
-    semantic_rgb_images = []
-    if n_examples == 1:
-        plot_segmentation(image=np_images[0])
-    else:
-        for image in np_images:
-            semantic_rgb_images.append(get_segmentation_rgb_array(image, class_colors) / 255)
-        display_images_horizontally(semantic_rgb_images)
-
-
-if __name__ == "__main__":
-    main()
