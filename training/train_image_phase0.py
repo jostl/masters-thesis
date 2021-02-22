@@ -238,12 +238,12 @@ def train(config):
         train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0)
         train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0)
 
-    if epoch in SAVE_EPOCHS:
-        torch.save(
-            net.state_dict(),
-            str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
+        if epoch in SAVE_EPOCHS:
+            torch.save(
+                net.state_dict(),
+                str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
 
-    bzu.log.end_epoch()
+        bzu.log.end_epoch()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
