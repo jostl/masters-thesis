@@ -65,7 +65,7 @@ def main(carla_path):
 
 
 if __name__ == '__main__':
-    carla_path = "data/perception/carla_test2"
+    carla_path = "data/perception/carla_test3"
     main(carla_path=carla_path)
 
     # prepare_for_multi_task_dataset("data/perception/prepped_256x288", "data/perception/prepped_256x288_mtl")

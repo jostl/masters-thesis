@@ -14,8 +14,9 @@ from perception.utils.visualization import show_predictions
 
 
 def create_dataloaders_with_multi_task_dataset(path, validation_set_size, batch_size=32,
-                                               n_semantic_classes=6, max_n_instances=-1):
-    dataset = MultiTaskDataset(root_folder=path, n_semantic_classes=n_semantic_classes, max_n_instances=max_n_instances)
+                                               n_semantic_classes=6, max_n_instances=-1, augment_strategy=None):
+    dataset = MultiTaskDataset(root_folder=path, n_semantic_classes=n_semantic_classes, max_n_instances=max_n_instances,
+                               augment_strategy=augment_strategy)
     train_size = int((1 - validation_set_size) * len(dataset))
     validation_size = len(dataset) - train_size
     train_dataset, validation_dataset = random_split(dataset, [train_size, validation_size])
@@ -52,20 +53,21 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
             for i, data in tqdm(enumerate(dataloaders[phase])):
                 # Get the inputs; data is a list of (RGB, semantic segmentation, depth maps).
-                rgb_image = data[0].to(device, dtype=torch.float32)
-                semantic_image = data[1].to(device, dtype=torch.float32)
-                depth_image = data[2].to(device, dtype=torch.float32)
+                rgb_input = data[0].to(device, dtype=torch.float32)
+                rgb_target = data[1].to(device, dtype=torch.float32)
+                semantic_image = data[2].to(device, dtype=torch.float32)
+                depth_image = data[3].to(device, dtype=torch.float32)
                 # Find the size of rgb_image
-                input_size = rgb_image.size(0)
+                input_size = rgb_input.size(0)
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
 
                 # forward + backward + optimize
                 with torch.set_grad_enabled(phase == "train"):
-                    outputs = model(rgb_image)
+                    outputs = model(rgb_input)
 
-                    loss = criterion(outputs, (rgb_image, semantic_image, depth_image))
+                    loss = criterion(outputs, (rgb_target, semantic_image, depth_image))
 
                     # backward + optimize only if in training phase
                     if phase == "train":
@@ -74,7 +76,7 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
                 if phase == "val" and n_displays_per_epoch and display_images is None:
                     # Save image from validation set as a numpy array. Used later for displaying predictions.
-                    display_images = (rgb_image, semantic_image, depth_image)
+                    display_images = (rgb_input, rgb_target, semantic_image, depth_image)
 
                 # statistics
                 running_loss += loss.item() * input_size
@@ -125,19 +127,17 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
 def main():
     model_name = "perception_test"
-    #model_save_path = "models/perception/{}_{}.pt".format(model_name, str(datetime.datetime.now())[:-7]
-    #                                                      .replace(" ", "-").replace(":", "-"))
     model_save_path = "training_logs/perception/{}".format(model_name)
     validation_set_size = 0.2
     max_n_instances = -1
     batch_size = 2
     n_semantic_classes = 6
-
-
-    path = "data/perception/carla_test2"
+    augment_strategy = "super_hard"
+    path = "data/perception/carla_test3"
     dataloaders = create_dataloaders_with_multi_task_dataset(path=path, validation_set_size=validation_set_size,
                                                              n_semantic_classes=n_semantic_classes,
-                                                             batch_size=batch_size, max_n_instances=max_n_instances)
+                                                             batch_size=batch_size, max_n_instances=max_n_instances,
+                                                             augment_strategy=augment_strategy)
 
     save_model_weights = True
     n_displays_per_epoch = 3
@@ -150,7 +150,6 @@ def main():
     train_model(model=model, dataloaders=dataloaders, criterion=criterion, optimizer=optimizer,
                 n_epochs=n_epochs, model_save_path=model_save_path, save_model_weights=save_model_weights,
                 n_displays_per_epoch=n_displays_per_epoch)
-
 
 if __name__ == '__main__':
     main()

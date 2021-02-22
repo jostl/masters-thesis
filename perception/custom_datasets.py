@@ -1,15 +1,17 @@
 from pathlib import Path
 
 import cv2
-from torch.utils.data import Dataset, DataLoader
 import numpy as np
+from torch.utils.data import Dataset, DataLoader
+
+import augmenter
 from perception.utils.helpers import get_segmentation_array
 
 
 class MultiTaskDataset(Dataset):
     """Dataset of folder with rgb, segmentation and depth subfolders"""
 
-    def __init__(self, root_folder: str, n_semantic_classes, transform=None, max_n_instances=-1):
+    def __init__(self, root_folder: str, n_semantic_classes, transform=None, max_n_instances=-1, augment_strategy=None):
         self.root_folder = Path(root_folder)
         self.transform = transform
         self.n_semantic_classes = n_semantic_classes
@@ -36,6 +38,12 @@ class MultiTaskDataset(Dataset):
         self.num_imgs = len(self.rgb_imgs)
 
         print("Len of dataset is:", self.num_imgs)
+        print("augment with", augment_strategy)
+        if augment_strategy is not None and augment_strategy != None:
+            self.augmenter = getattr(augmenter, augment_strategy)
+        else:
+            self.augmenter = None
+        self.batch_read_number = 819200
 
     def __len__(self):
         return self.num_imgs
@@ -45,13 +53,22 @@ class MultiTaskDataset(Dataset):
             img = img.transpose(2, 0, 1)
             return img / 255 if normalize else img
 
-        rgb_img = transpose(cv2.imread(str(self.rgb_imgs[idx])), normalize=True)
+        def read_rgb(img_path):
+            return cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+
+        rgb_target = read_rgb(str(self.rgb_imgs[idx]))
+        if self.augmenter:
+            rgb_input = self.augmenter(self.batch_read_number).augment_image(rgb_target)
+        else:
+            rgb_input = rgb_target
+        rgb_input = transpose(rgb_input, normalize=True)
+        rgb_target = transpose(rgb_target, normalize=True)
         semantic_img = transpose(
             get_segmentation_array(cv2.imread(str(self.semantic_imgs[idx])), n_classes=self.n_semantic_classes),
             normalize=False)
-        depth_img =np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)])/255
-
-        return rgb_img, semantic_img, depth_img
+        depth_img = np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255
+        self.batch_read_number += 1
+        return rgb_input, rgb_target, semantic_img, depth_img
 
 
 if __name__ == '__main__':

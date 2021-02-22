@@ -67,12 +67,13 @@ def display_originals_with_decoded(original_images, decoded_images, title=""):
 def show_predictions(model, inputs, device, n_displays=1, title=""):
     # input_image has size (Height, Width, N-Channels).
     # Have to add batch dimension, and transpose it to able to make predictions
-    rgb_targets, semantic_targets, depth_targets = inputs[0].to(device), inputs[1].to(device), inputs[2].to(device)
+    rgb_inputs, rgb_targets, semantic_targets, depth_targets = inputs[0].to(device), inputs[1].to(device), inputs[2].to(
+        device), inputs[3].to(device)
     model.eval()
     with torch.no_grad():
-        predictions = model(rgb_targets)
+        predictions = model(rgb_inputs)
     # Send all predictions and target tensors to cpu
-    n_displays = min(n_displays, len(rgb_targets))
+    n_displays = min(n_displays, len(rgb_inputs))
 
     rgb_preds, semantic_preds, depth_preds = [pred.cpu().numpy().transpose(0, 2, 3, 1)[:n_displays] for pred in
                                               predictions]

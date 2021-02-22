@@ -189,7 +189,6 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         if is_train and config['speed_noise'] > 0:
             speed += noiser.sample(speed.size()).to(speed.device)
             speed = torch.clamp(speed, 0, 10)
-
         if len(rgb_image.size()) > 4:
             B, batch_aug, c, h, w = rgb_image.size()
             rgb_image = rgb_image.view(B*batch_aug,c,h,w)
