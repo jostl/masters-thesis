@@ -43,7 +43,7 @@ def spawn_sensors(world: carla.World, actor: carla.Actor) -> Dict[str, carla.Sen
         "depth": world.get_blueprint_library().find('sensor.camera.depth')
     }
 
-    fov = random.randint(60, 110)
+    fov = 90
     yaw = random.gauss(0, 45)
     sensor_transform = carla.Transform(carla.Location(0, 0, 3), carla.Rotation(0, yaw, 0))
     for sensor_name, blueprint in blueprints.items():
