@@ -106,16 +106,12 @@ def show_predictions(model, inputs, device, n_displays=1, title=""):
         display_originals_with_decoded(original_images=original_images, decoded_images=decoded_images, title=title)
 
 
-def plot_image(image, format="bgr", cmap="binary"):
+def plot_image(image, cmap="binary"):
     # todo: https://stackoverflow.com/questions/49643907/clipping-input-data-to-the-valid-range-for-imshow-with-rgb-data-0-1-for-floa
     # det kommer en feilmelding som jeg ikke forstår, tror det går fint å ignorere den
-    if format == "bgr" and cmap != "gray":
-        # TODO: Midlertidlig løsning, må gjøre en fullstendig omgjøring av innlesing av bilder, slik at alt alltid er RGB
-        # This changes BGR -> RGB
-        image = image[..., ::-1].copy()
     plt.imshow(image, cmap=cmap)
     plt.axis("off")
-    #plt.show()
+    # plt.show()
 
 
 def plot_segmentation(image: np.ndarray, format="bgr"):

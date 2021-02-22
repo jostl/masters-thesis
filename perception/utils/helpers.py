@@ -23,12 +23,12 @@ def convert_segmentation_images(input_folder, output_folder, classes_array):
     for filename in filenames:
 
         # In BGR format
-        img = cv2.imread(input_folder + "/" + filename)
+        img = cv2.cvtColor(cv2.imread(input_folder + "/" + filename), cv2.COLOR_BGR2RGB)
         output_img = np.zeros(img.shape)
 
         for j, class_colors in enumerate(classes_array):
             for color in class_colors:
-                mask = (img == color[::-1]).all(axis=2)
+                mask = (img == color).all(axis=2)
                 output_img[mask] = [j + 1, 0, 0]
 
         write_path = str(output_folder + "/" + filename)
