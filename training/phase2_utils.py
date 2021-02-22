@@ -14,7 +14,7 @@ except IndexError as e:
     pass
 
 import utils.carla_utils as cu
-from models.image import ImagePolicyModelSS
+from models.image import ImagePolicyModelSS, FullModel
 from models.birdview import BirdViewPolicyModelSS
 
 CROP_SIZE = 192
@@ -285,5 +285,27 @@ class ReplayBuffer(torch.utils.data.Dataset):
                 cmds.append(cmd)
                 speeds.append(speed)
                 targets.append(target)
-        
-        return torch.stack(rgb_images), torch.stack(bird_views), torch.FloatTensor(cmds), torch.FloatTensor(speeds), torch.FloatTensor(targets)
+
+        return torch.stack(rgb_images), torch.stack(bird_views), torch.FloatTensor(cmds), torch.FloatTensor(
+            speeds), torch.FloatTensor(targets)
+
+
+def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="", n_semantic_classes=6,
+                      phase0_ckpt="", all_branch=False, **kwargs):
+    if perception_ckpt:
+        net = FullModel(image_backbone=backbone, image_pretrained=imagenet_pretrained,
+                        n_semantic_classes=n_semantic_classes, all_branch=all_branch)
+        net.perception.load_state_dict(torch.load(perception_ckpt, map_location=device))
+        net.perception.set_rgb_decoder(use_rgb_decoder=False)
+        # Dont calculate gradients for perception layers
+        for param in net.perception.parameters():
+            param.requires_grad = False
+    else:
+        net = ImagePolicyModelSS(
+            backbone,
+            pretrained=imagenet_pretrained,
+            all_branch=all_branch
+        )
+    if phase0_ckpt:
+        net.image_model.load_state_dict(torch.load(phase0_ckpt))
+    return net.to(device)

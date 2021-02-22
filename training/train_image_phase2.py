@@ -282,15 +282,13 @@ def train(config):
         ReplayBuffer,
         LocationLoss,
         load_birdview_model,
+        setup_image_model,
         load_image_model,
         get_optimizer
         )
 
     criterion = LocationLoss()
-    net = load_image_model(
-        config['model_args']['backbone'],
-        config['phase1_ckpt'],
-        device=config['device'])
+    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False)
 
     teacher_net = load_birdview_model(
         teacher_config['model_args']['backbone'],
@@ -306,7 +304,8 @@ def train(config):
     # optimizer = get_optimizer(net.parameters(), config["optimizer_args"]["lr"])
 
     for episode in tqdm.tqdm(range(config['max_episode']), desc='Episode'):
-        rollout(replay_buffer, coord_converter, net, teacher_net, episode, episode_length=config['episode_length'], image_agent_kwargs=image_agent_kwargs, port=config['port'])
+        rollout(replay_buffer, coord_converter, net, teacher_net, episode, episode_length=config['episode_length'],
+                image_agent_kwargs=image_agent_kwargs, port=config['port'])
         # import pdb; pdb.set_trace()
         _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
 
@@ -323,6 +322,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_aug', type=int, default=1)
 
     parser.add_argument('--ckpt', required=True)
+    parser.add_argument('--perception_ckpt', default="")
+    parser.add_argument('--n_semantic_classes', type=int, default=6)
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -358,6 +359,8 @@ if __name__ == '__main__':
             'model_args': {
                 'model': 'image_ss',
                 'backbone': BACKBONE,
+                'perception_ckpt': parsed.perception_ckpt,
+                'n_semantic_classes':parsed.n_semantic_classes
                 },
             'agent_args': {
                 'camera_args': {
