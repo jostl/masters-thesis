@@ -9,7 +9,7 @@ from . import common
 from .agent import Agent
 from .controller import CustomController, PIDController
 from .controller import ls_circle
-
+from perception.perception_model import MobileNetUNet
 
 CROP_SIZE = 192
 STEPS = 5
@@ -20,8 +20,8 @@ PIXELS_PER_METER = 5
 
         
 class ImagePolicyModelSS(common.ResnetBase):
-    def __init__(self, backbone, warp=False, pretrained=False, all_branch=False, **kwargs):
-        super().__init__(backbone, pretrained=pretrained, input_channel=3, bias_first=False)
+    def __init__(self, backbone, warp=False, pretrained=False, all_branch=False, input_channel=3, **kwargs):
+        super().__init__(backbone, pretrained=pretrained, input_channel=input_channel, bias_first=False)
         
         self.c = {
                 'resnet18': 512,
@@ -66,59 +66,77 @@ class ImagePolicyModelSS(common.ResnetBase):
             warped_image = tgm.warp_perspective(image, self.M, dsize=(192, 192))
             resized_image = resize_images(image)
             image = torch.cat([warped_image, resized_image], 1)
-        
-        
-        image = self.rgb_transform(image)
+
+        if image.shape[1] == 3:
+            image = self.rgb_transform(image)
 
         h = self.conv(image)
         b, c, kh, kw = h.size()
-        
+
         # Late fusion for velocity
-        velocity = velocity[...,None,None,None].repeat((1,128,kh,kw))
-        
+        velocity = velocity[..., None, None, None].repeat((1, 128, kh, kw))
+
         h = torch.cat((h, velocity), dim=1)
         h = self.deconv(h)
-        
+
         location_preds = [location_pred(h) for location_pred in self.location_pred]
         location_preds = torch.stack(location_preds, dim=1)
         location_pred = common.select_branch(location_preds, command)
 
         if self.all_branch:
             return location_pred, location_preds
-        
+
         return location_pred
 
 
+class FullModel(nn.Module):
+    def __init__(self, n_semantic_classes: int, image_backbone, image_pretrained, all_branch):
+        super(FullModel, self).__init__()
+
+        self.perception = MobileNetUNet(n_semantic_classes)
+        self.image_model = ImagePolicyModelSS(image_backbone,
+                                              pretrained=image_pretrained,
+                                              all_branch=all_branch, input_channel=n_semantic_classes + 1)
+        self.all_branch = all_branch
+
+    def forward(self, image, velocity, command):
+        semantic_seg_pred, depth_pred = self.perception(image)
+
+        perception = torch.cat([semantic_seg_pred, depth_pred], dim=1)
+
+        return self.image_model(perception, velocity, command)
+
 
 class ImageAgent(Agent):
-    def __init__(self, steer_points=None, pid=None, gap=5, camera_args={'x':384,'h':160,'fov':90,'world_y':1.4,'fixed_offset':4.0}, **kwargs):
+    def __init__(self, steer_points=None, pid=None, gap=5,
+                 camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, **kwargs):
         super().__init__(**kwargs)
 
         self.fixed_offset = float(camera_args['fixed_offset'])
-        print ("Offset: ", self.fixed_offset)
+        print("Offset: ", self.fixed_offset)
         w = float(camera_args['w'])
         h = float(camera_args['h'])
-        self.img_size = np.array([w,h])
+        self.img_size = np.array([w, h])
         self.gap = gap
-        
+
         if steer_points is None:
             steer_points = {"1": 4, "2": 3, "3": 2, "4": 2}
 
         if pid is None:
             pid = {
-                "1" : {"Kp": 0.5, "Ki": 0.20, "Kd":0.0}, # Left
-                "2" : {"Kp": 0.7, "Ki": 0.10, "Kd":0.0}, # Right
-                "3" : {"Kp": 1.0, "Ki": 0.10, "Kd":0.0}, # Straight
-                "4" : {"Kp": 1.0, "Ki": 0.50, "Kd":0.0}, # Follow
+                "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
+                "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+                "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+                "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
             }
 
         self.steer_points = steer_points
         self.turn_control = CustomController(pid)
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
-        
+
         self.engine_brake_threshold = 2.0
         self.brake_threshold = 2.0
-        
+
         self.last_brake = -1
 
     def run_step(self, observations, teaching=False):

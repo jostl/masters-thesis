@@ -2,7 +2,6 @@ import time
 import argparse
 
 from pathlib import Path
-
 import numpy as np
 import torch
 import tqdm
@@ -27,7 +26,7 @@ except IndexError as e:
     pass
 
 import utils.bz_utils as bzu
-
+from training.phase2_utils import setup_image_model
 from models.birdview import BirdViewPolicyModelSS
 from models.image import ImagePolicyModelSS
 from utils.train_utils import one_hot
@@ -189,7 +188,6 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         if is_train and config['speed_noise'] > 0:
             speed += noiser.sample(speed.size()).to(speed.device)
             speed = torch.clamp(speed, 0, 10)
-
         if len(rgb_image.size()) > 4:
             B, batch_aug, c, h, w = rgb_image.size()
             rgb_image = rgb_image.view(B*batch_aug,c,h,w)
@@ -245,14 +243,11 @@ def train(config):
 
     data_train, data_val = load_data(**config['data_args'])
     criterion = LocationLoss()
-    net = ImagePolicyModelSS(
-        config['model_args']['backbone'],
-        pretrained=config['model_args']['imagenet_pretrained'],
-        all_branch=True
-    ).to(config['device'])
-    net.load_state_dict(torch.load(config['phase0_ckpt']))
 
-    teacher_net = BirdViewPolicyModelSS(teacher_config['model_args']['backbone'], pretrained=True, all_branch=True).to(config['device'])
+    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True)
+
+    teacher_net = BirdViewPolicyModelSS(teacher_config['model_args']['backbone'], pretrained=True, all_branch=True).to(
+        config['device'])
     teacher_net.load_state_dict(torch.load(config['teacher_args']['model_path']))
     teacher_net.eval()
 
@@ -281,59 +276,64 @@ if __name__ == '__main__':
     # Model
     parser.add_argument('--pretrained', action='store_true')
     parser.add_argument('--ckpt', required=True)
-    
+    parser.add_argument('--perception_ckpt', default="")
+    parser.add_argument('--n_semantic_classes', type=int, default=6)
+
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
-    
+
     parser.add_argument('--fixed_offset', type=float, default=4.)
-    
+
     # Dataset.
     parser.add_argument('--batch_aug', type=int, default=1)
     parser.add_argument('--dataset_dir', default='/raid0/dian/carla_0.9.6_data')
     parser.add_argument('--batch_size', type=int, default=24)
     parser.add_argument('--speed_noise', type=float, default=0.0)
-    parser.add_argument('--augment', choices=['medium', 'medium_harder', 'super_hard', 'None', 'custom'], default='super_hard')
+    parser.add_argument('--augment', choices=['medium', 'medium_harder', 'super_hard', 'None', 'custom'],
+                        default='super_hard')
     parser.add_argument('--num_workers', type=int, default=0)
 
     # Optimizer.
     parser.add_argument('--lr', type=float, default=1e-4)
 
     parsed = parser.parse_args()
-    
+
     config = {
-            'log_dir': parsed.log_dir,
-            'log_iterations': parsed.log_iterations,
-            'max_epoch': parsed.max_epoch,
-            'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
-            'phase0_ckpt': parsed.ckpt,
-            'optimizer_args': {'lr': parsed.lr},
-            'speed_noise': parsed.speed_noise,
-            'data_args': {
-                'dataset_dir': parsed.dataset_dir,
-                'batch_size': parsed.batch_size,
-                'n_step': N_STEP,
-                'gap': GAP,
-                'augment': parsed.augment,
-                'batch_aug': parsed.batch_aug,
-                'num_workers': parsed.num_workers,
-                },
-            'model_args': {
-                'model': 'image_ss',
-                'imagenet_pretrained': parsed.pretrained,
-                'backbone': BACKBONE,
-                },
-            'teacher_args' : {
-                'model_path': parsed.teacher_path,
-                },
-            'agent_args': {
-                'camera_args': {
-                    'w': 384,
-                    'h': 160,
-                    'fov': 90,
-                    'world_y': 1.4,
-                    'fixed_offset': 4.0,
-                },
-            }
+        'log_dir': parsed.log_dir,
+        'log_iterations': parsed.log_iterations,
+        'max_epoch': parsed.max_epoch,
+        'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+        'phase0_ckpt': parsed.ckpt,
+        'optimizer_args': {'lr': parsed.lr},
+        'speed_noise': parsed.speed_noise,
+        'data_args': {
+            'dataset_dir': parsed.dataset_dir,
+            'batch_size': parsed.batch_size,
+            'n_step': N_STEP,
+            'gap': GAP,
+            'augment': parsed.augment,
+            'batch_aug': parsed.batch_aug,
+            'num_workers': parsed.num_workers,
+        },
+        'model_args': {
+            'model': 'image_ss',
+            'imagenet_pretrained': parsed.pretrained,
+            'backbone': BACKBONE,
+            'perception_ckpt': parsed.perception_ckpt,
+            'n_semantic_classes': parsed.n_semantic_classes
+        },
+        'teacher_args': {
+            'model_path': parsed.teacher_path,
+        },
+        'agent_args': {
+            'camera_args': {
+                'w': 384,
+                'h': 160,
+                'fov': 90,
+                'world_y': 1.4,
+                'fixed_offset': 4.0,
+            },
         }
+    }
 
     train(config)
