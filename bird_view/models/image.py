@@ -20,8 +20,8 @@ PIXELS_PER_METER = 5
 
         
 class ImagePolicyModelSS(common.ResnetBase):
-    def __init__(self, backbone, warp=False, pretrained=False, all_branch=False, **kwargs):
-        super().__init__(backbone, pretrained=pretrained, input_channel=3, bias_first=False)
+    def __init__(self, backbone, warp=False, pretrained=False, all_branch=False, input_channel=3, **kwargs):
+        super().__init__(backbone, pretrained=pretrained, input_channel=input_channel, bias_first=False)
         
         self.c = {
                 'resnet18': 512,
