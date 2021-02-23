@@ -40,7 +40,6 @@ class PointGoalSuite(BaseSuite):
 
     def init(self, target=1, **kwargs):
         self._target_pose = self._map.get_spawn_points()[target]
-
         super().init(**kwargs)
 
     def ready(self):
