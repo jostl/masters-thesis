@@ -23,14 +23,20 @@ def _add(suite_name, *args, **kwargs):
     else:
         raise Exception('No town specified: %s.' % suite_name)
 
-    benchmark = 'carla100' if 'NoCrash' in suite_name else 'corl2017'
+    if 'NoCrash' in suite_name:
+        benchmark = 'carla100'
+    elif 'DataCollection' in suite_name:
+        benchmark = 'data_collection'
+    else:
+        benchmark = 'corl2017'
+
     suite = None
 
     if 'Turn' in suite_name:
         suite = 'turn'
     elif 'Straight' in suite_name:
         suite = 'straight'
-    elif 'Full' in suite_name:
+    elif 'Full' in suite_name or "DataCollection" in suite_name:
         suite = 'full'
     elif 'NoCrash' in suite_name:
         suite = 'nocrash'
@@ -146,6 +152,9 @@ _add('TurnTown02-noweather', n_vehicles=0, weathers=[1])
 _add('FullTown02-noweather-nav', n_vehicles=0, weathers=[1])
 _add('FullTown02-noweather', n_vehicles=15, weathers=[1])
 
+
+# Data collection
+_add("DataCollectionTown01")
 
 _aliases = {
         'town1': [

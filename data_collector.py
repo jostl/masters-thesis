@@ -233,7 +233,7 @@ def main(params):
     total = 0
 
     for i in tqdm.tqdm(range(params.n_episodes), desc='Episode'):
-        with make_suite('FullTown01-v1', port=params.port, planner=params.planner) as env:
+        with make_suite('DataCollectionTown01', port=params.port, planner=params.planner) as env:
             filepath = save_dir.joinpath('%03d' % i)
 
             if filepath.exists():
