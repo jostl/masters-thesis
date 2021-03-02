@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import tqdm
 import torch.nn as nn
 
 try:
@@ -24,11 +23,13 @@ try:
     sys.path.append(glob.glob('../')[0])
 except IndexError as e:
     pass
-
+from training.ppo_utils.replay_buffer import PPOReplayBuffer
+from training.phase2_utils import setup_image_model
 from bird_view.utils import carla_utils as cu
 from benchmark import make_suite
 from tqdm import tqdm
-from training.rl_utils import PPOImageAgent, CriticNetwork
+from training.ppo_utils.agent import PPOImageAgent
+from training.ppo_utils.critic import CriticNetwork
 
 BACKBONE = 'resnet34'
 GAP = 5
@@ -53,6 +54,7 @@ def rollout(replay_buffer, image_agent, episode_length=4000,
             n_vehicles=100, n_pedestrians=250, port=2000, planner="new"):
     progress = tqdm(range(episode_length), desc='Frame')
     weather = np.random.choice(list(cu.TRAIN_WEATHERS.keys()))
+    data = []
     while len(data) < episode_length:
         with make_suite('NoCrashTown01-v1', port=port, planner=planner) as env:
             start, target = env.pose_tasks[np.random.randint(len(env.pose_tasks))]
@@ -80,8 +82,8 @@ def rollout(replay_buffer, image_agent, episode_length=4000,
                 data.append({
                     'state': {
                         'rgb_img': state["rgb"].copy(),
-                        'cmd': int(state["command"]),
-                        'speed': np.linalg.norm(state["velocity"])},
+                        'command': int(state["command"]),
+                        'velocity': np.linalg.norm(state["velocity"])},
                     'action': action,
                     'action_logprobs': action_logprobs,
                     'reward': reward,
@@ -107,37 +109,37 @@ def rollout(replay_buffer, image_agent, episode_length=4000,
         replay_buffer.add_data(**datum)
 
 
-def update(replay_buffer, image_agent, optimizer, config, episode, gamma=0.99, eps_clip=0.05):
+def update(replay_buffer, image_agent, optimizer, config, episode, critic_criterion, gamma=0.99, eps_clip=0.05):
     rewards = []
     discounted_reward = 0
+
     for reward, is_terminal in zip(reversed(replay_buffer.get_rewards()), reversed(replay_buffer.get_is_terminals())):
         if is_terminal:
             discounted_reward = 0
         discounted_reward = reward + (gamma * discounted_reward)
         rewards.insert(0, discounted_reward)
-    loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=0, pin_memory=True,
+    loader = torch.utils.data.DataLoader(replay_buffer, batch_size=10, num_workers=0, pin_memory=False,
                                          shuffle=False, drop_last=True)
     rewards = torch.tensor(rewards, dtype=torch.float32).to(config["device"])
     for epoch in range(config['epoch_per_episode']):
-        for i, (idxes, old_states, old_actions, old_logprobs) in tqdm.tqdm(enumerate(loader)):
+        for i, (idxes, old_states, old_actions, old_logprobs, _, _) in tqdm(enumerate(loader)):
             logprobs, state_values, dist_entropy = image_agent.evaluate(old_states, old_actions)
 
             ratios = torch.exp(logprobs - old_logprobs)
-
-            advantages = rewards[idxes:idxes + 1] - state_values
+            advantages = rewards[idxes] - state_values
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages
-            loss = -torch.min(surr1, surr2) + 0.5 * nn.MSELoss(state_values, rewards) - 0.01 * dist_entropy
+            loss = -torch.min(surr1, surr2) + 0.5 * critic_criterion(state_values, rewards[idxes]) - 0.01 * dist_entropy
 
             # take gradient step
             optimizer.zero_grad()
             loss.mean().backward()
             optimizer.step()
 
-    image_agent.policy_old.load_state_dict(image_agent.policy.state_dict())
+    image_agent.policy_old.load_state_dict(image_agent.model.state_dict())
 
     if episode in SAVE_EPISODES:
-        torch.save(image_agent.policy.state_dict(),
+        torch.save(image_agent.model.state_dict(),
                    str(Path(config['log_dir']) / ('model-%d.th' % episode)))
 
 
@@ -147,36 +149,29 @@ def train(config):
     bzu.log.init(config['log_dir'])
     bzu.log.save_config(config)
 
-    from training.phase2_utils import (
-        LocationLoss,
-        setup_image_model
-    )
-    from training.rl_utils import PPOReplayBuffer
-    criterion = LocationLoss()
-
-
     replay_buffer = PPOReplayBuffer(**config["buffer_args"])
 
     actor_net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
-                                  imageactor_net_pretrained=False)
+                                  imagenet_pretrained=False)
     actor_net_old = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
-                                      imageactor_net_pretrained=False)
-    critic_net = CriticNetwork(backbone=config["model_args"]["backbone"],
-                               device=config["cuda"])
+                                      imagenet_pretrained=False)
 
+
+    critic_net = CriticNetwork(backbone=config["model_args"]["backbone"],
+                               device=config["device"]).to(config["device"])
 
     image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
-    image_agent = PPOImageAgent(replay_buffer, policy=actor_net, policy_old=actor_net_old, critic=critic_net,
+    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, critic=critic_net,
                                 **image_agent_kwargs)
 
     optimizer = torch.optim.Adam(actor_net.parameters(), lr=1e-4)
-
-    for episode in tqdm.tqdm(range(config['max_episode']), desc='Episode'):
+    critic_criterion = nn.MSELoss()
+    for episode in tqdm(range(config['max_episode']), desc='Episode'):
         rollout(replay_buffer, image_agent, episode_length=config['episode_length'],
                 port=config['port'])
         # import pdb; pdb.set_trace()
-        update(replay_buffer, image_agent, optimizer, criterion, config, episode)
-        replay_buffer.clear_memory()
+        update(replay_buffer, image_agent, optimizer, config, episode, critic_criterion)
+        replay_buffer.clear_buffer()
 
 
 if __name__ == '__main__':
@@ -188,7 +183,6 @@ if __name__ == '__main__':
     parser.add_argument('--epoch_per_episode', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--speed_noise', type=float, default=0.0)
-    parser.add_argument('--batch_aug', type=int, default=1)
 
     parser.add_argument('--actor-ckpt', required=True)
     parser.add_argument('--perception-ckpt', default="")
@@ -215,17 +209,14 @@ if __name__ == '__main__':
         'speed_noise': parsed.speed_noise,
         'epoch_per_episode': parsed.epoch_per_episode,
         'device': 'cuda',
-        'phase1_ckpt': parsed.ckpt,
-        'optimizer_args': {'lr': parsed.lr},
+        'optimizer_args': {'lr': parsed.actor_lr},
         'buffer_args': {
             'buffer_limit': 200000,
-            'batch_aug': parsed.batch_aug,
-            'augment': 'super_hard',
-            'aug_fix_iter': 819200,
         },
         'model_args': {
             'model': 'image_ss',
             'backbone': BACKBONE,
+            'image_ckpt': parsed.actor_ckpt,
             'perception_ckpt': parsed.perception_ckpt,
             'n_semantic_classes': parsed.n_semantic_classes
         },
