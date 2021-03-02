@@ -11,7 +11,7 @@ from bird_view.models import common
 from bird_view.models.agent import Agent
 from bird_view.models.controller import CustomController, PIDController
 from bird_view.models.controller import ls_circle
-
+from perception.perception_model import MobileNetUNet
 try:
     sys.path.append(glob.glob('../PythonAPI')[0])
     sys.path.append(glob.glob('../bird_view')[0])
@@ -25,7 +25,7 @@ STEPS = 5
 COMMANDS = 4
 DT = 0.1
 
-class PPOReplayBuffer2(torch.utils.data.Dataset):
+class PPOReplayBuffer(torch.utils.data.Dataset):
     def __init__(self, buffer_limit=100000):
         self.buffer_limit = buffer_limit
         self._data = []
@@ -99,7 +99,7 @@ class PPOReplayBuffer2(torch.utils.data.Dataset):
             speeds), torch.FloatTensor(targets)
 
 
-class PPOReplayBuffer():
+class PPO2ReplayBuffer():
     def __init__(self, buffer_limit):
         self.actions = []
         self.states = []
@@ -310,3 +310,78 @@ class ActorCritic(nn.Module):
         state_value = self.critic(state)
 
         return action_logprobs, torch.squeeze(state_value), dist_entropy
+
+
+class CriticNetwork(common.ResnetBase):
+    def __init__(self, backbone, device, warp=False, pretrained=False, all_branch=False, input_channel=3, perception_ckpt= "", n_semantic_classes=6, **kwargs):
+        super().__init__(backbone, pretrained=pretrained, input_channel=input_channel, bias_first=False)
+        # TODO: Temporary Critic Network.
+        if perception_ckpt:
+            self.perception = MobileNetUNet(n_semantic_classes)
+            self.perception.load_state_dict(torch.load(perception_ckpt, map_location=device))
+            self.perception.set_rgb_decoder(use_rgb_decoder=False)
+            # Dont calculate gradients for perception layers
+            for param in self.perception.parameters():
+                param.requires_grad = False
+        else:
+            self.perception = None
+
+        self.c = {
+            'resnet18': 512,
+            'resnet34': 512,
+            'resnet50': 2048
+        }[backbone]
+        self.warp = warp
+        self.rgb_transform = common.NormalizeV2(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+
+        self.deconv = nn.Sequential(
+            nn.BatchNorm2d(self.c + 128),
+            nn.ConvTranspose2d(self.c + 128, 256, 3, 2, 1, 1),
+            nn.ReLU(True),
+            nn.BatchNorm2d(256),
+            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1),
+            nn.ReLU(True),
+            nn.BatchNorm2d(128),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1),
+            nn.ReLU(True),
+            nn.Flatten()
+        )
+
+        self.value_pred = nn.ModuleList([
+            nn.Sequential(
+                nn.BatchNorm2d(64),
+                nn.Linear(150, 50),
+                nn.ReLU(),
+                nn.BatchNorm1d(50),
+                nn.Linear(50, 1)
+            ) for _ in range(4)
+        ])
+
+        self.all_branch = all_branch
+
+    def forward(self, state, velocity, command):
+        if state.shape[1] == 3:
+            state = self.rgb_transform(state)
+        if self.perception is not None:
+            state = self.perception(state)
+
+        h = self.conv(state)
+        b, c, kh, kw = h.size()
+
+        # Late fusion for velocity
+        velocity = velocity[..., None, None, None].repeat((1, 128, kh, kw))
+
+        h = torch.cat((h, velocity), dim=1)
+        h = self.deconv(h)
+
+        value_pred = [value_pred(h) for value_pred in self.value_pred]
+        value_preds = torch.stack(value_pred, dim=1)
+        location_pred = common.select_branch(value_preds, command)
+
+        if self.all_branch:
+            return location_pred, value_preds
+
+        return location_pred

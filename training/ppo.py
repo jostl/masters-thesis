@@ -28,7 +28,7 @@ except IndexError as e:
 from bird_view.utils import carla_utils as cu
 from benchmark import make_suite
 from tqdm import tqdm
-from training.rl_utils import PPOImageAgent
+from training.rl_utils import PPOImageAgent, CriticNetwork
 
 BACKBONE = 'resnet34'
 GAP = 5
@@ -51,7 +51,6 @@ def crop_birdview(birdview, dx=0, dy=0):
 
 def rollout(replay_buffer, image_agent, episode_length=4000,
             n_vehicles=100, n_pedestrians=250, port=2000, planner="new"):
-    num_data = 0
     progress = tqdm(range(episode_length), desc='Frame')
     weather = np.random.choice(list(cu.TRAIN_WEATHERS.keys()))
     while len(data) < episode_length:
@@ -78,7 +77,6 @@ def rollout(replay_buffer, image_agent, episode_length=4000,
                 reward = env.get_reward()
                 is_terminal = env.is_success() or env.collided
 
-                # todo: legg til action_logprobs
                 data.append({
                     'state': {
                         'rgb_img': state["rgb"].copy(),
@@ -105,10 +103,8 @@ def rollout(replay_buffer, image_agent, episode_length=4000,
             env._world.apply_settings(env_settings)
             if env.collided:
                 data = data[:-5]
-
     for datum in data:
         replay_buffer.add_data(**datum)
-        num_data += 1
 
 
 def update(replay_buffer, image_agent, optimizer, config, episode, gamma=0.99, eps_clip=0.05):
@@ -128,7 +124,7 @@ def update(replay_buffer, image_agent, optimizer, config, episode, gamma=0.99, e
 
             ratios = torch.exp(logprobs - old_logprobs)
 
-            advantages = rewards[idxes:idxes +1] - state_values
+            advantages = rewards[idxes:idxes + 1] - state_values
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages
             loss = -torch.min(surr1, surr2) + 0.5 * nn.MSELoss(state_values, rewards) - 0.01 * dist_entropy
@@ -157,13 +153,18 @@ def train(config):
     )
     from training.rl_utils import PPOReplayBuffer
     criterion = LocationLoss()
+
+
     replay_buffer = PPOReplayBuffer(**config["buffer_args"])
 
     actor_net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
                                   imageactor_net_pretrained=False)
     actor_net_old = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
                                       imageactor_net_pretrained=False)
-    critic_net = None  # TODO: Sett upp critic nettverk
+    critic_net = CriticNetwork(backbone=config["model_args"]["backbone"],
+                               device=config["cuda"])
+
+
     image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
     image_agent = PPOImageAgent(replay_buffer, policy=actor_net, policy_old=actor_net_old, critic=critic_net,
                                 **image_agent_kwargs)
