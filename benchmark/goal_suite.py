@@ -207,3 +207,7 @@ class PointGoalSuite(BaseSuite):
         w, h = fig.canvas.get_width_height()
 
         return np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(h, w, 3)
+
+    def get_reward(self):
+        # TODO: Implementer rewards
+        raise NotImplementedError
