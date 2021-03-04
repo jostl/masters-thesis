@@ -317,6 +317,7 @@ if __name__ == '__main__':
         },
         'model_args': {
             'model': 'image_ss',
+            'image_ckpt' : parsed.ckpt,
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
             'perception_ckpt': parsed.perception_ckpt,

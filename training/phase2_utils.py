@@ -291,7 +291,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
 
 def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="", n_semantic_classes=6,
-                      phase0_ckpt="", all_branch=False, **kwargs):
+                      image_ckpt="", all_branch=False, **kwargs):
     if perception_ckpt:
         net = FullModel(image_backbone=backbone, image_pretrained=imagenet_pretrained,
                         n_semantic_classes=n_semantic_classes, all_branch=all_branch)
@@ -300,12 +300,14 @@ def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="",
         # Dont calculate gradients for perception layers
         for param in net.perception.parameters():
             param.requires_grad = False
+        if image_ckpt:
+            net.image_model.load_state_dict(torch.load(image_ckpt))
     else:
         net = ImagePolicyModelSS(
             backbone,
             pretrained=imagenet_pretrained,
             all_branch=all_branch
         )
-    if phase0_ckpt:
-        net.image_model.load_state_dict(torch.load(phase0_ckpt))
+        if image_ckpt:
+            net.load_state_dict(torch.load(image_ckpt))
     return net.to(device)
