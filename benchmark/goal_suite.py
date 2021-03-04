@@ -210,4 +210,4 @@ class PointGoalSuite(BaseSuite):
 
     def get_reward(self):
         # TODO: Implementer rewards
-        raise NotImplementedError
+        return 1
