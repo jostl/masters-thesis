@@ -358,6 +358,7 @@ if __name__ == '__main__':
             },
             'model_args': {
                 'model': 'image_ss',
+                'image_ckpt' : parsed.ckpt,
                 'backbone': BACKBONE,
                 'perception_ckpt': parsed.perception_ckpt,
                 'n_semantic_classes':parsed.n_semantic_classes
