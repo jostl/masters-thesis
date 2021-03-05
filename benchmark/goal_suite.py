@@ -219,6 +219,6 @@ class PointGoalSuite(BaseSuite):
                 reward = -50
             elif "walker" in collided_type:
                 reward = -100
-            else:
-                reward = 1
+        else:
+            reward = 1
         return reward

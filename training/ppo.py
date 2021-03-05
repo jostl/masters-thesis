@@ -50,65 +50,64 @@ def crop_birdview(birdview, dx=0, dy=0):
     return birdview
 
 
-def rollout(replay_buffer, image_agent, episode_length=4000,
-            n_vehicles=100, n_pedestrians=250, port=2000, planner="new"):
-    progress = tqdm(range(episode_length), desc='Frame')
+def rollout(replay_buffer, image_agent, max_rollout_length=4000,
+            n_vehicles=0, n_pedestrians=400, port=2000, planner="new"):
+    progress = tqdm(range(max_rollout_length), desc='Frame')
     weather = np.random.choice(list(cu.TRAIN_WEATHERS.keys()))
     data = []
-    while len(data) < episode_length:
-        with make_suite('NoCrashTown01-v1', port=port, planner=planner) as env:
-            start, target = env.pose_tasks[np.random.randint(len(env.pose_tasks))]
-            env_params = {
-                'weather': weather,
-                'start': start,
-                'target': target,
-                'n_pedestrians': n_pedestrians,
-                'n_vehicles': n_vehicles,
-            }
+    with make_suite('NoCrashTown01-v1', port=port, planner=planner) as env:
+        start, target = env.pose_tasks[np.random.randint(len(env.pose_tasks))]
+        env_params = {
+            'weather': weather,
+            'start': start,
+            'target': target,
+            'n_pedestrians': n_pedestrians,
+            'n_vehicles': n_vehicles,
+        }
 
-            env.init(**env_params)
-            env.success_dist = 5.0
-            i = 0
-            while not env.is_success() and not env.collided:
-                env.tick()
+        env.init(**env_params)
+        env.success_dist = 5.0
+        env.tick()
+        i = 0
+        while not env.is_success() and not env.collided and len(data) <= max_rollout_length:
 
-                state = env.get_observations()
-                control, action, action_logprobs = image_agent.run_step(state)
+            state = env.get_observations()
+            control, action, action_logprobs = image_agent.run_step(state)
 
-                env.apply_control(control)
-                reward = env.get_reward()
-                is_terminal = env.is_success() or env.collided
+            env.apply_control(control)
+            env.tick()
+            reward = env.get_reward()
 
-                if i % 50 == 0:
-                    env.move_spectator_to_player()
+            is_terminal = env.collided or env.is_failure() or env.is_success()
 
-                data.append({
-                    'state': {
-                        'rgb_img': state["rgb"].copy(),
-                        'command': int(state["command"]),
-                        'velocity': np.linalg.norm(state["velocity"])},
-                    'action': action,
-                    'action_logprobs': action_logprobs,
-                    'reward': reward,
-                    'is_terminal': is_terminal
-                })
+            if i % 50 == 0:
+                env.move_spectator_to_player()
 
-                progress.update(1)
-                i += 1
+            data.append({
+                'state': {
+                    'rgb_img': state["rgb"].copy(),
+                    'command': int(state["command"]),
+                    'velocity': np.linalg.norm(state["velocity"])},
+                'action': action,
+                'action_logprobs': action_logprobs,
+                'reward': reward,
+                'is_terminal': is_terminal
+            })
 
-                # DEBUG
-                if len(data) >= episode_length:
-                    break
-                # DEBUG END
+            progress.update(1)
+            i += 1
 
-            print("Collided: ", env.collided)
-            print("Success: ", env.is_success())
+            # DEBUG
+            if len(data) >= max_rollout_length:
+                break
+            # DEBUG END
 
-            env_settings = env._world.get_settings()
-            env_settings.no_rendering_mode = True
-            env._world.apply_settings(env_settings)
-            if env.collided:
-                data = data[:-5]
+        print("Collided: ", env.collided)
+        print("Success: ", env.is_success())
+
+        env_settings = env._world.get_settings()
+        env_settings.no_rendering_mode = True
+        env._world.apply_settings(env_settings)
     for datum in data:
         replay_buffer.add_data(**datum)
 
@@ -170,9 +169,11 @@ def train(config):
 
     optimizer = torch.optim.Adam(actor_net.parameters(), lr=1e-4)
     critic_criterion = nn.MSELoss()
-    for episode in tqdm(range(config['max_episode']), desc='Episode'):
-        rollout(replay_buffer, image_agent, episode_length=config['episode_length'],
-                port=config['port'])
+    for episode in range(config['max_episode']):
+        for i in range(config["rollouts_per_ep"]):
+            print("Episode ", episode + 1, ", Rollout ", i + 1)
+            rollout(replay_buffer, image_agent, max_rollout_length=config['max_rollout_length'],
+                    port=config['port'])
         # import pdb; pdb.set_trace()
         update(replay_buffer, image_agent, optimizer, config, episode, critic_criterion)
         replay_buffer.clear_buffer()
@@ -183,7 +184,8 @@ if __name__ == '__main__':
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--log_iterations', default=100)
     parser.add_argument('--max_episode', type=int, default=20)
-    parser.add_argument('--episode_length', type=int, default=1000)
+    parser.add_argument('--max_rollout_length', type=int, default=4000)
+    parser.add_argument('--rollouts_per_ep', type=int, default=1)
     parser.add_argument('--epoch_per_episode', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--speed_noise', type=float, default=0.0)
@@ -209,7 +211,8 @@ if __name__ == '__main__':
         'log_iterations': parsed.log_iterations,
         'batch_size': parsed.batch_size,
         'max_episode': parsed.max_episode,
-        'episode_length': parsed.episode_length,
+        'max_rollout_length': parsed.max_rollout_length,
+        'rollouts_per_ep': parsed.rollouts_per_ep,
         'speed_noise': parsed.speed_noise,
         'epoch_per_episode': parsed.epoch_per_episode,
         'device': 'cuda',
