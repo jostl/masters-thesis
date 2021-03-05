@@ -68,7 +68,7 @@ def rollout(replay_buffer, image_agent, episode_length=4000,
 
             env.init(**env_params)
             env.success_dist = 5.0
-
+            i = 0
             while not env.is_success() and not env.collided:
                 env.tick()
 
@@ -78,6 +78,9 @@ def rollout(replay_buffer, image_agent, episode_length=4000,
                 env.apply_control(control)
                 reward = env.get_reward()
                 is_terminal = env.is_success() or env.collided
+
+                if i % 50 == 0:
+                    env.move_spectator_to_player()
 
                 data.append({
                     'state': {
@@ -91,6 +94,7 @@ def rollout(replay_buffer, image_agent, episode_length=4000,
                 })
 
                 progress.update(1)
+                i += 1
 
                 # DEBUG
                 if len(data) >= episode_length:

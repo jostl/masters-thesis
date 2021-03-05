@@ -537,9 +537,8 @@ class CarlaWrapper(object):
         # move spectator to vehicle
         spectator = self._world.get_spectator()
         player_transform = self._player.get_transform()
-        pepe = carla.Location()
         spectator.set_transform(carla.Transform(player_transform.location + carla.Location(z=50),
-                                                carla.Rotation(pitch=-90)))
+                                                carla.Rotation(pitch=-90, yaw=player_transform.rotation.yaw)))
 
     def ready(self, ticks=50):
         self.tick()
