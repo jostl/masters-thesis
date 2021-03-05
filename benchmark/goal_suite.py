@@ -210,4 +210,15 @@ class PointGoalSuite(BaseSuite):
 
     def get_reward(self):
         # TODO: Implementer rewards
-        return 1
+        reward = 0
+        if self.collided:
+            collided_type = "".join(self.collided_with_actor.type_id.split("."))
+            if "static" in collided_type or "traffic" in collided_type:
+                reward = -20
+            elif "vehicle" in collided_type:
+                reward = -50
+            elif "walker" in collided_type:
+                reward = -100
+            else:
+                reward = 1
+        return reward

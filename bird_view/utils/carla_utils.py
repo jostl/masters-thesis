@@ -374,6 +374,7 @@ class CarlaWrapper(object):
         self.col_threshold = col_threshold
         self.collided = False
         self._collided_frame_number = -1
+        self.collided_with_actor = -1
 
         self.invaded = False
         self._invaded_frame_number = -1
@@ -689,12 +690,13 @@ class CarlaWrapper(object):
 
         rgb_camera.listen(self._rgb_queue.put)
         self._actor_dict['sensor'].append(rgb_camera)
-        
-        
+
+
 
         # Collisions.
         self.collided = False
         self._collided_frame_number = -1
+        self.collided_with_actor = -1
 
         collision_sensor = self._world.spawn_actor(
                 self._blueprints.find('sensor.other.collision'),
@@ -723,10 +725,11 @@ class CarlaWrapper(object):
 
         impulse = event.normal_impulse
         intensity = np.linalg.norm([impulse.x, impulse.y, impulse.z])
-
+        print(event)
         if intensity > _self.col_threshold:
             _self.collided = True
             _self._collided_frame_number = event.frame_number
+            _self.collided_with_actor = event.other_actor
 
     @staticmethod
     def _on_invasion(weakself, event):
