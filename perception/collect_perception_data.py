@@ -47,8 +47,8 @@ def spawn_sensors(world: carla.World, actor: carla.Actor) -> Dict[str, carla.Sen
     yaw = random.gauss(0, 45)
     sensor_transform = carla.Transform(carla.Location(0, 0, 3), carla.Rotation(0, yaw, 0))
     for sensor_name, blueprint in blueprints.items():
-        blueprint.set_attribute("image_size_x", "384")
-        blueprint.set_attribute("image_size_y", "160")
+        blueprint.set_attribute("image_size_x", "640")
+        blueprint.set_attribute("image_size_y", "480")
         blueprint.set_attribute("fov", str(fov))
         blueprint.set_attribute("sensor_tick", str(SENSOR_TICK))  # Get new data every x second
         sensor: carla.Sensor = world.spawn_actor(blueprint, sensor_transform, attach_to=actor)
