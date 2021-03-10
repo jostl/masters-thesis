@@ -175,7 +175,8 @@ def main():
         world.set_weather(weather.weather)
 
         vehicle_spawner = VehicleSpawner(client, world, False)
-        vehicle_spawner.spawn_nearby(0, 40, 40, 40, 80, 1000000)
+        vehicle_spawner.spawn_nearby(0, number_of_vehicles_min=100, number_of_walkers_max=100,
+                                     number_of_walkers_min=250, number_of_vehicles_max=250, radius=1000000)
 
         print("Running the world for 5 seconds before capturing...")
         frame = start_frame
