@@ -1,4 +1,5 @@
 venv
+data
 
 *.sw*
 **/__pycache__

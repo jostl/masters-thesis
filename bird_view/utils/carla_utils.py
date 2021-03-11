@@ -418,7 +418,7 @@ class CarlaWrapper(object):
             spawn_point = spawn_points.pop(random.randrange(len(spawn_points)))
             spawn_command = SpawnActor(blueprint, spawn_point).then(SetAutoPilot(FutureActor, True))
             batch.append(spawn_command)
-        responses = self._client.apply_batch_sync(batch, True)
+        responses = self._client.apply_batch_sync(batch, False)
         for response in responses:
             vehicle = self._world.get_actor(response.actor_id)
             self._actor_dict['vehicle'].append(vehicle)
