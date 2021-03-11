@@ -3,17 +3,21 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from perception.utils.segmentation_labels import CARLA_CLASSES
 
 
-def get_segmentation_colors(n_classes, only_random=False, color_seed=73):
+def get_segmentation_colors(n_classes, only_random=False, class_indxs=None, color_seed=73):
+    assert only_random or class_indxs
     random.seed(color_seed)
-    class_colors = [(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 255),
-                    (255, 255, 255)] if not only_random else []
-    if n_classes <= len(class_colors) and not only_random:
-        class_colors = class_colors[:n_classes]
-    else:
-        for i in range(n_classes - len(class_colors)):
+    class_colors = []
+    if only_random:
+        for _ in range(n_classes):
             class_colors.append((random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+        return class_colors
+    elif class_indxs:
+        for c in class_indxs:
+            class_colors.append(CARLA_CLASSES[c][1])
+        class_colors.append((0, 0, 0))
     return class_colors
 
 
@@ -112,9 +116,9 @@ def plot_image(image, cmap="binary"):
     # plt.show()
 
 
-def plot_segmentation(image: np.ndarray, format="bgr"):
+def plot_segmentation(image: np.ndarray):
     _, _, n_classes = image.shape
     class_colors = get_segmentation_colors(n_classes=n_classes)
     semantic_image_rgb = get_segmentation_rgb_array(image, class_colors=class_colors) / 255
-    plot_image(semantic_image_rgb, format)
+    plot_image(semantic_image_rgb)
     plt.show()
