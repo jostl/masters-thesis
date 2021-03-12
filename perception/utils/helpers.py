@@ -109,28 +109,28 @@ def get_segmentation_tensor(image: np.ndarray, classes):
         segmentation_labels[:, :, i] = (image == c).real
         filter = (image == c).real
         segmentation_labels[:, :, -1] = np.logical_or(segmentation_labels[:, :, -1], filter)
-    segmentation_labels[:, :, -1] = np.logical_not(segmentation_labels[:,:, -1])
+    segmentation_labels[:, :, -1] = np.logical_not(segmentation_labels[:, :, -1])
     return segmentation_labels
 
 
 def main():
-    semantic_image = "data/perception/test_color_converter2/segmentation/after_rain_sunset_1412_117.png"
-    rgb = "data/perception/test_color_converter2/rgb/after_rain_sunset_1412_117.png"
+    semantic_image = "data/perception/test1/segmentation/clear_noon_1228_163.png"
+    rgb = "data/perception/test1/rgb/clear_noon_1228_163.png"
     rgb = cv2.cvtColor(cv2.imread(rgb), cv2.COLOR_BGR2RGB)
-    classes = [8, 7, 6, 4, 10, 5,18, 14]
 
+    classes = [8, 7, 6, 4, 10, 5, 18, 14]
     semantic_img = get_segmentation_tensor(cv2.cvtColor(cv2.imread(semantic_image), cv2.COLOR_BGR2RGB),
-                                          classes=classes)
+                                           classes=classes)
 
     import matplotlib.pyplot as plt
     from perception.utils.visualization import get_rgb_segmentation, get_segmentation_colors
-    #plot_segmentation(semantic_img)
+    # plot_segmentation(semantic_img)
     colors = get_segmentation_colors(len(classes) + 1, class_indxs=classes)
-    rgb = get_segmentation_tensor(semantic_img, colors) / 255
+    rgb = get_rgb_segmentation(semantic_img, colors) / 255
     plt.imshow(rgb)
     plt.show()
-    #plt.imshow(rgb_)
-    #plt.show()
+    # plt.imshow(rgb_)
+    # plt.show()
 
 
 if __name__ == '__main__':

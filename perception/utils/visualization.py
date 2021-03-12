@@ -3,6 +3,7 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
 from perception.utils.segmentation_labels import CARLA_CLASSES
 
 
@@ -66,7 +67,7 @@ def display_originals_with_decoded(original_images, decoded_images, title=""):
         fig.show()
 
 
-def show_predictions(model, inputs, device, n_displays=1, title=""):
+def show_predictions(model, inputs, device, semantic_classes, n_displays=1, title=""):
     # input_image has size (Height, Width, N-Channels).
     # Have to add batch dimension, and transpose it to able to make predictions
     rgb_inputs, rgb_targets, semantic_targets, depth_targets = inputs[0].to(device), inputs[1].to(device), inputs[2].to(
@@ -91,8 +92,7 @@ def show_predictions(model, inputs, device, n_displays=1, title=""):
         semantic_target = semantic_targets[i]
         depth_target = depth_targets[i]
 
-        _, _, n_classes = semantic_pred.shape
-        class_colors = get_segmentation_colors(n_classes=n_classes)
+        class_colors = get_segmentation_colors(semantic_classes, class_indxs=semantic_classes)
 
         semantic_pred_rgb = get_rgb_segmentation(semantic_image=semantic_pred, class_colors=class_colors)
         semantic_target_rgb = get_rgb_segmentation(semantic_image=semantic_target, class_colors=class_colors)

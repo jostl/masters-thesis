@@ -65,7 +65,7 @@ class MultiTaskDataset(Dataset):
         rgb_input = transpose(rgb_input, normalize=True)
         rgb_target = transpose(rgb_target, normalize=True)
         semantic_img = transpose(
-            get_segmentation_tensor(cv2.imread(str(self.semantic_imgs[idx])), classes=self.semantic_classes),
+            get_segmentation_tensor(read_rgb(str(self.semantic_imgs[idx])), classes=self.semantic_classes),
             normalize=False)
         depth_img = np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255
         self.batch_read_number += 1
