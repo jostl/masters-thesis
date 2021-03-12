@@ -76,11 +76,11 @@ class ComparisonDataset(Dataset):
     """Dataset of folder with rgb, segmentation and depth subfolders"""
 
     def __init__(self, root_folder: str, segmentation_models, depth_models,
-                 n_semantic_classes, transform=None, max_n_instances=-1):
+                 semantic_classes=DEFAULT_CLASSES, transform=None, max_n_instances=-1):
 
         self.root_folder = Path(root_folder)
         self.transform = transform
-        self.n_semantic_classes = n_semantic_classes
+        self.semantic_classes = semantic_classes
 
         self.rgb_folder = self.root_folder / "rgb"
         self.semantic_folder = self.root_folder / "segmentation"
@@ -136,15 +136,15 @@ class ComparisonDataset(Dataset):
         rgb_img = read_rgb(str(self.rgb_imgs[idx]))
 
         semantic_img = transpose(
-            get_segmentation_array(cv2.imread(str(self.semantic_imgs[idx])), n_classes=self.n_semantic_classes),
+            get_segmentation_tensor(cv2.imread(str(self.semantic_imgs[idx])), classes=self.semantic_classes),
             normalize=False)
         depth_img = np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255
 
         semantic_model_preds = {}
         for model_name in self.segmentation_model_imgs:
             semantic_model_preds[model_name] = transpose(
-                get_segmentation_array(cv2.imread(str(self.segmentation_model_imgs[model_name][idx])),
-                                       n_classes=self.n_semantic_classes), normalize=False)
+                get_segmentation_tensor(cv2.imread(str(self.segmentation_model_imgs[model_name][idx])),
+                                       classes=self.semantic_classes), normalize=False)
 
         depth_model_preds = {}
         for model_name in self.depth_model_imgs:
