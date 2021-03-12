@@ -4,20 +4,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from perception.utils.segmentation_labels import CARLA_CLASSES
 
-def get_segmentation_colors(n_classes, only_random=False, color_seed=73):
+
+def get_segmentation_colors(n_classes, only_random=False, class_indxs=None, color_seed=73):
+    assert only_random or class_indxs
     random.seed(color_seed)
-    class_colors = [(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 0, 255),
-                    (255, 255, 255)] if not only_random else []
-    if n_classes <= len(class_colors) and not only_random:
-        class_colors = class_colors[:n_classes]
-    else:
-        for i in range(n_classes - len(class_colors)):
+    class_colors = []
+    if only_random:
+        for _ in range(n_classes):
             class_colors.append((random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+        return class_colors
+    elif class_indxs:
+        for c in class_indxs:
+            class_colors.append(CARLA_CLASSES[c][1])
+        class_colors.append((0, 0, 0))
     return class_colors
 
 
-def get_segmentation_rgb_array(semantic_image: np.ndarray, class_colors):
+def get_rgb_segmentation(semantic_image: np.ndarray, class_colors):
     """
     Creates a RGB image from a semantic image. Semantic image must have shape: (Height, Width, #Semantic Classes)
     """
@@ -62,7 +67,7 @@ def display_originals_with_decoded(original_images, decoded_images, title=""):
         fig.show()
 
 
-def show_predictions(model, inputs, device, n_displays=1, title=""):
+def show_predictions(model, inputs, device, semantic_classes, n_displays=1, title=""):
     # input_image has size (Height, Width, N-Channels).
     # Have to add batch dimension, and transpose it to able to make predictions
     rgb_inputs, rgb_targets, semantic_targets, depth_targets = inputs[0].to(device), inputs[1].to(device), inputs[2].to(
@@ -87,11 +92,10 @@ def show_predictions(model, inputs, device, n_displays=1, title=""):
         semantic_target = semantic_targets[i]
         depth_target = depth_targets[i]
 
-        _, _, n_classes = semantic_pred.shape
-        class_colors = get_segmentation_colors(n_classes=n_classes)
+        class_colors = get_segmentation_colors(semantic_classes, class_indxs=semantic_classes)
 
-        semantic_pred_rgb = get_segmentation_rgb_array(semantic_image=semantic_pred, class_colors=class_colors)
-        semantic_target_rgb = get_segmentation_rgb_array(semantic_image=semantic_target, class_colors=class_colors)
+        semantic_pred_rgb = get_rgb_segmentation(semantic_image=semantic_pred, class_colors=class_colors)
+        semantic_target_rgb = get_rgb_segmentation(semantic_image=semantic_target, class_colors=class_colors)
 
         semantic_pred_rgb = semantic_pred_rgb / 255
         semantic_target_rgb = semantic_target_rgb / 255
@@ -112,9 +116,9 @@ def plot_image(image, cmap="binary"):
     # plt.show()
 
 
-def plot_segmentation(image: np.ndarray, format="bgr"):
+def plot_segmentation(image: np.ndarray):
     _, _, n_classes = image.shape
     class_colors = get_segmentation_colors(n_classes=n_classes)
-    semantic_image_rgb = get_segmentation_rgb_array(image, class_colors=class_colors) / 255
-    plot_image(semantic_image_rgb, format)
+    semantic_image_rgb = get_rgb_segmentation(image, class_colors=class_colors) / 255
+    plot_image(semantic_image_rgb)
     plt.show()
