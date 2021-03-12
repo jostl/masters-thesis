@@ -11,11 +11,11 @@ from perception.custom_datasets import MultiTaskDataset
 from perception.multi_task_criterion import MultiTaskCriterion
 from perception.perception_model import MobileNetUNet
 from perception.utils.visualization import show_predictions
-
+from perception.utils.segmentation_labels import DEFAULT_CLASSES
 
 def create_dataloaders_with_multi_task_dataset(path, validation_set_size, batch_size=32,
-                                               n_semantic_classes=6, max_n_instances=-1, augment_strategy=None):
-    dataset = MultiTaskDataset(root_folder=path, n_semantic_classes=n_semantic_classes, max_n_instances=max_n_instances,
+                                               semantic_classes=DEFAULT_CLASSES, max_n_instances=-1, augment_strategy=None):
+    dataset = MultiTaskDataset(root_folder=path, semantic_classes=semantic_classes, max_n_instances=max_n_instances,
                                augment_strategy=augment_strategy)
     train_size = int((1 - validation_set_size) * len(dataset))
     validation_size = len(dataset) - train_size
@@ -27,7 +27,7 @@ def create_dataloaders_with_multi_task_dataset(path, validation_set_size, batch_
 
 
 def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_path, scheduler=None,
-                save_model_weights=True, n_displays_per_epoch=0):
+                save_model_weights=True, n_displays_per_epoch=0, semantic_classes = DEFAULT_CLASSES):
     # determine the computational device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
@@ -103,7 +103,7 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
         if n_displays_per_epoch:
             # Show image from the validation set together with decoded predictions
-            show_predictions(model, display_images, device, n_displays=n_displays_per_epoch,
+            show_predictions(model, display_images, device, semantic_classes, n_displays=n_displays_per_epoch,
                              title="Results from epoch {}".format(epoch + 1))
 
         # Save the model
@@ -131,11 +131,11 @@ def main():
     validation_set_size = 0.2
     max_n_instances = -1
     batch_size = 2
-    n_semantic_classes = 6
+    semantic_classes = DEFAULT_CLASSES
     augment_strategy = "super_hard"
     path = "data/perception/carla_test3"
     dataloaders = create_dataloaders_with_multi_task_dataset(path=path, validation_set_size=validation_set_size,
-                                                             n_semantic_classes=n_semantic_classes,
+                                                             semantic_classes=semantic_classes,
                                                              batch_size=batch_size, max_n_instances=max_n_instances,
                                                              augment_strategy=augment_strategy)
 
@@ -143,13 +143,13 @@ def main():
     n_displays_per_epoch = 3
     n_epochs = 30
 
-    model = MobileNetUNet(n_semantic_classes=n_semantic_classes)
+    model = MobileNetUNet(n_semantic_classes=len(semantic_classes) + 1)
     criterion = MultiTaskCriterion()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     train_model(model=model, dataloaders=dataloaders, criterion=criterion, optimizer=optimizer,
                 n_epochs=n_epochs, model_save_path=model_save_path, save_model_weights=save_model_weights,
-                n_displays_per_epoch=n_displays_per_epoch)
+                n_displays_per_epoch=n_displays_per_epoch, semantic_classes=semantic_classes)
 
 if __name__ == '__main__':
     main()

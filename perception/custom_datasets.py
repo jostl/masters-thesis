@@ -5,16 +5,17 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 
 import augmenter
-from perception.utils.helpers import get_segmentation_array
+from perception.utils.helpers import get_segmentation_tensor
+from perception.utils.segmentation_labels import DEFAULT_CLASSES
 
 
 class MultiTaskDataset(Dataset):
     """Dataset of folder with rgb, segmentation and depth subfolders"""
 
-    def __init__(self, root_folder: str, n_semantic_classes, transform=None, max_n_instances=-1, augment_strategy=None):
+    def __init__(self, root_folder: str, transform=None, semantic_classes=DEFAULT_CLASSES, max_n_instances=-1, augment_strategy=None):
         self.root_folder = Path(root_folder)
         self.transform = transform
-        self.n_semantic_classes = n_semantic_classes
+        self.semantic_classes = semantic_classes
 
         self.rgb_folder = self.root_folder / "rgb"
         self.semantic_folder = self.root_folder / "segmentation"
@@ -64,7 +65,7 @@ class MultiTaskDataset(Dataset):
         rgb_input = transpose(rgb_input, normalize=True)
         rgb_target = transpose(rgb_target, normalize=True)
         semantic_img = transpose(
-            get_segmentation_array(cv2.imread(str(self.semantic_imgs[idx])), n_classes=self.n_semantic_classes),
+            get_segmentation_tensor(read_rgb(str(self.semantic_imgs[idx])), classes=self.semantic_classes),
             normalize=False)
         depth_img = np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255
         self.batch_read_number += 1
@@ -154,7 +155,7 @@ class ComparisonDataset(Dataset):
 
 
 if __name__ == '__main__':
-    dataset = MultiTaskDataset("data/perception/prepped_256x288_mtl", n_semantic_classes=6)
+    dataset = MultiTaskDataset("data/perception/prepped_256x288_mtl", semantic_classes=DEFAULT_CLASSES)
     dataloader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=0,
                             pin_memory=True)
 
