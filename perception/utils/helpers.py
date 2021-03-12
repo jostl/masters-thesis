@@ -100,10 +100,38 @@ def verify_folder_exists(path):
         os.makedirs(str(path))
 
 
-def get_segmentation_array(image: np.ndarray, n_classes):
+def get_segmentation_tensor(image: np.ndarray, classes):
+    n_classes = len(classes) + 1
     height, width, _ = image.shape
     segmentation_labels = np.zeros((height, width, n_classes))
     image = image[:, :, 0]
-    for c in range(n_classes):
-        segmentation_labels[:, :, c] = (image == c).real
+    for i, c in enumerate(classes):
+        segmentation_labels[:, :, i] = (image == c).real
+        filter = (image == c).real
+        segmentation_labels[:, :, -1] = np.logical_or(segmentation_labels[:, :, -1], filter)
+    segmentation_labels[:, :, -1] = np.logical_not(segmentation_labels[:,:, -1])
     return segmentation_labels
+
+
+def main():
+    semantic_image = "data/perception/test_color_converter2/segmentation/after_rain_sunset_1412_117.png"
+    rgb = "data/perception/test_color_converter2/rgb/after_rain_sunset_1412_117.png"
+    rgb = cv2.cvtColor(cv2.imread(rgb), cv2.COLOR_BGR2RGB)
+    classes = [8, 7, 6, 4, 10, 5,18, 14]
+
+    semantic_img = get_segmentation_tensor(cv2.cvtColor(cv2.imread(semantic_image), cv2.COLOR_BGR2RGB),
+                                          classes=classes)
+
+    import matplotlib.pyplot as plt
+    from perception.utils.visualization import get_rgb_segmentation, get_segmentation_colors
+    #plot_segmentation(semantic_img)
+    colors = get_segmentation_colors(len(classes) + 1, class_indxs=classes)
+    rgb = get_segmentation_tensor(semantic_img, colors) / 255
+    plt.imshow(rgb)
+    plt.show()
+    #plt.imshow(rgb_)
+    #plt.show()
+
+
+if __name__ == '__main__':
+    main()

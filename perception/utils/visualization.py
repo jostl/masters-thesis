@@ -21,7 +21,7 @@ def get_segmentation_colors(n_classes, only_random=False, class_indxs=None, colo
     return class_colors
 
 
-def get_segmentation_rgb_array(semantic_image: np.ndarray, class_colors):
+def get_rgb_segmentation(semantic_image: np.ndarray, class_colors):
     """
     Creates a RGB image from a semantic image. Semantic image must have shape: (Height, Width, #Semantic Classes)
     """
@@ -94,8 +94,8 @@ def show_predictions(model, inputs, device, n_displays=1, title=""):
         _, _, n_classes = semantic_pred.shape
         class_colors = get_segmentation_colors(n_classes=n_classes)
 
-        semantic_pred_rgb = get_segmentation_rgb_array(semantic_image=semantic_pred, class_colors=class_colors)
-        semantic_target_rgb = get_segmentation_rgb_array(semantic_image=semantic_target, class_colors=class_colors)
+        semantic_pred_rgb = get_rgb_segmentation(semantic_image=semantic_pred, class_colors=class_colors)
+        semantic_target_rgb = get_rgb_segmentation(semantic_image=semantic_target, class_colors=class_colors)
 
         semantic_pred_rgb = semantic_pred_rgb / 255
         semantic_target_rgb = semantic_target_rgb / 255
@@ -119,6 +119,6 @@ def plot_image(image, cmap="binary"):
 def plot_segmentation(image: np.ndarray):
     _, _, n_classes = image.shape
     class_colors = get_segmentation_colors(n_classes=n_classes)
-    semantic_image_rgb = get_segmentation_rgb_array(image, class_colors=class_colors) / 255
+    semantic_image_rgb = get_rgb_segmentation(image, class_colors=class_colors) / 255
     plot_image(semantic_image_rgb)
     plt.show()

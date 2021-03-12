@@ -13,7 +13,7 @@ carla_lane_markings_colors = np.array([np.array([157, 234, 50], dtype='uint8')])
 carla_vehicle_colors = np.array([np.array([0, 0, 142], dtype='uint8')])
 carla_humans_colors = np.array([np.array([220, 20, 60], dtype='uint8')])
 
-#CARLA_CLASSES = np.array(
+# CARLA_CLASSES = np.array(
 #    [carla_road, carla_sidewalk, carla_lane_markings_colors, carla_humans_colors, carla_vehicle_colors])
 
 
@@ -40,3 +40,5 @@ CARLA_CLASSES = {0: ("Unlabeled", (0, 0, 0)),
                  20: ("Dynamic", (170, 120, 50)),
                  21: ("Water", (45, 60, 150)),
                  22: ("Terrain", (145, 170, 100))}
+
+DEFAULT_CLASSES = [8, 7, 6, 4, 10, 5, 18, 14]
