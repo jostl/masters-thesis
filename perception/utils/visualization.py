@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from perception.utils.segmentation_labels import CARLA_CLASSES
+from perception.utils.segmentation_labels import CARLA_CLASSES, DEFAULT_CLASSES
 
 
 def get_segmentation_colors(n_classes, only_random=False, class_indxs=None, color_seed=73):
@@ -39,6 +39,13 @@ def get_rgb_segmentation(semantic_image: np.ndarray, class_colors):
 def display_images_horizontally(images):
     # Inspired from Hands-On Machine Learning with SciKit-learn, Keras and TensorFlow, page 574
     # Displays the list of images horizontally.
+
+    def plot_image(image, cmap="binary"):
+        # todo: https://stackoverflow.com/questions/49643907/clipping-input-data-to-the-valid-range-for-imshow-with-rgb-data-0-1-for-floa
+        plt.imshow(image, cmap=cmap)
+        plt.axis("off")
+        # plt.show()
+
     n_images = len(images)
     if n_images > 0:
         fig = plt.figure(figsize=(n_images * 1.5, 3))
@@ -54,6 +61,13 @@ def display_originals_with_decoded(original_images, decoded_images, title=""):
     # Inspired by Hands-On Machine Learning with SciKit-learn, Keras and TensorFlow, page 574.
     # Meant to be used for visualization of target images and predicted images in multi-task learning.
     # Target images displayed in top row, predicted images in row below.
+
+    def plot_image(image, cmap="binary"):
+        # todo: https://stackoverflow.com/questions/49643907/clipping-input-data-to-the-valid-range-for-imshow-with-rgb-data-0-1-for-floa
+        plt.imshow(image, cmap=cmap)
+        plt.axis("off")
+        # plt.show()
+
     n_images = len(original_images)
     if n_images > 0:
         fig = plt.figure(figsize=(n_images * 1.2, 3))
@@ -112,13 +126,12 @@ def show_predictions(model, inputs, device, semantic_classes, n_displays=1, titl
 def plot_image(image, cmap="binary"):
     # todo: https://stackoverflow.com/questions/49643907/clipping-input-data-to-the-valid-range-for-imshow-with-rgb-data-0-1-for-floa
     plt.imshow(image, cmap=cmap)
-    plt.axis("off")
-    # plt.show()
+    plt.show()
 
 
 def plot_segmentation(image: np.ndarray):
     _, _, n_classes = image.shape
-    class_colors = get_segmentation_colors(n_classes=n_classes)
+    class_colors = get_segmentation_colors(n_classes=n_classes, class_indxs=DEFAULT_CLASSES)
     semantic_image_rgb = get_rgb_segmentation(image, class_colors=class_colors) / 255
     plot_image(semantic_image_rgb)
     plt.show()
