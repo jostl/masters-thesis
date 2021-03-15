@@ -136,14 +136,14 @@ class ComparisonDataset(Dataset):
         rgb_img = read_rgb(str(self.rgb_imgs[idx]))
 
         semantic_img = transpose(
-            get_segmentation_tensor(cv2.imread(str(self.semantic_imgs[idx])), classes=self.semantic_classes),
+            get_segmentation_tensor(read_rgb(str(self.semantic_imgs[idx])), classes=self.semantic_classes),
             normalize=False)
         depth_img = np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255
 
         semantic_model_preds = {}
         for model_name in self.segmentation_model_imgs:
             semantic_model_preds[model_name] = transpose(
-                get_segmentation_tensor(cv2.imread(str(self.segmentation_model_imgs[model_name][idx])),
+                get_segmentation_tensor(read_rgb(str(self.segmentation_model_imgs[model_name][idx])),
                                        classes=self.semantic_classes), normalize=False)
 
         depth_model_preds = {}
