@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from perception.custom_datasets import ComparisonDataset
 from perception.utils.visualization import plot_segmentation, plot_image
@@ -29,7 +30,6 @@ def jaccard_index(target, predictions):
     iou_scores_imagewise_sum = iou_scores_classwise.sum(dim=1)
     class_exists_mask_sum = class_exists_mask.sum(dim=1)
     iou_scores_imagewise_mean = iou_scores_imagewise_sum / class_exists_mask_sum
-
 
     iou_score_batch_mean = torch.mean(iou_scores_imagewise_mean)
 
@@ -66,15 +66,15 @@ def accuracy_within_threshold(targets, predictions, threshold=1.25):
         print("Accuracy within threshold warning: Accuracy is ", end="")
         if True in uniques:
             accuracy = 1.
-            print("1")
+            print("1. uniques:", uniques)
         else:
             accuracy = 0.
-            print("0")
+            print("0. uniques:", uniques)
     return accuracy
 
 
 def compare_models(data_folder, segmentation_models, depth_models, batch_size=10):
-    targets = ComparisonDataset(data_folder, segmentation_models, depth_models, max_n_instances=15)
+    targets = ComparisonDataset(data_folder, segmentation_models, depth_models, max_n_instances=150)  # TODO sett opp max_n
 
     dataloader = DataLoader(targets, batch_size=batch_size, shuffle=False, num_workers=0,
                             pin_memory=True)
@@ -86,7 +86,7 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=10
     accuracy_with_threshold_accumulated = defaultdict(int)
     rmse_accumulated = defaultdict(int)
 
-    for rgb_targets, segmentation_targets, depth_targets, segmentation_preds, depth_preds in dataloader:
+    for rgb_targets, segmentation_targets, depth_targets, segmentation_preds, depth_preds in tqdm(dataloader):
 
         for model in segmentation_preds:
             mean_intersection_over_union_accumulated[model] \
@@ -99,8 +99,8 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=10
             accuracy_with_threshold_accumulated[model] += accuracy_within_threshold(depth_targets, depth_preds[model])
             rmse_accumulated[model] += rmse(depth_targets, depth_preds[model])
 
-            #img = depth_preds[model].numpy()[0].transpose(1, 2, 0)
-            #plot_image(img)
+            img = depth_preds[model].numpy()[0].transpose(1, 2, 0)
+            plot_image(img, title=model)
 
     n_batches = np.ceil(len(targets) / batch_size)
 
@@ -126,21 +126,26 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=10
     print("finished comparison, this print is here for debugging reasons")
 
 
-    # TODO speed measurement
+    # TODO speed measurement - dette blir nesten en egen greie
     # TODO lag nice output format
 
 
 if __name__ == "__main__":
 
     # location of where to find training, test1, test2
-    data_folder = Path("data/perception/train_10k/train")
+    data_folder = Path("data/perception/test1")
     predictions_folder = Path("data/perception/predictions")
 
     # lagres på formatet (Navn, lokasjon)
-    segmentation_models = [("nvidia-test", predictions_folder / "nvidia_test"),
-                           ("train10k-lol?", data_folder / "segmentation")]
-    depth_models = [("MiDaS-test", predictions_folder / "midas_test"),
-                    ("train10k-depth", data_folder / "depth")]
+    segmentation_models = [("train10k-lol?", data_folder / "segmentation"),
+                           ("semantic-test", predictions_folder / "semantic_test")]
+
+    # lagres på formatet (Navn, lokasjon, invert_pixels_in_loading)
+    # ("test1-depth", data_folder / "depth", False)
+    depth_models = [("MiDaS-big-test1", predictions_folder / "midas_big_test1", True),
+                    ("MiDaS-small-test1", predictions_folder / "midas_small_test1", True),
+                    ("AdaBins-nyu-test1", predictions_folder / "adabins_nyu_test1", False),
+                    ("AdaBins-kitti-test1", predictions_folder / "adabins_kitti_test1", False)]
 
     compare_models(data_folder, segmentation_models, depth_models)
 

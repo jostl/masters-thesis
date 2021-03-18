@@ -122,6 +122,10 @@ class ComparisonDataset(Dataset):
 
             assert len(self.depth_model_imgs[model[0]]) == self.num_imgs
 
+        self.depth_model_invert = {}
+        for model in depth_models:
+            self.depth_model_invert[model[0]] = model[2]
+
     def __len__(self):
         return self.num_imgs
 
@@ -148,8 +152,14 @@ class ComparisonDataset(Dataset):
 
         depth_model_preds = {}
         for model_name in self.depth_model_imgs:
-            depth_model_preds[model_name] = np.array([cv2.imread(str(self.depth_model_imgs[model_name][idx])
-                                                                 , cv2.IMREAD_GRAYSCALE)]) / 255
+
+            # some models treat white as close and black as far away, invert some models so that they are "aligned"
+            if self.depth_model_invert[model_name]:
+                depth_model_preds[model_name] = (255 - np.array([cv2.imread(str(self.depth_model_imgs[model_name][idx])
+                                                                            , cv2.IMREAD_GRAYSCALE)])) / 255
+            else:
+                depth_model_preds[model_name] = np.array([cv2.imread(str(self.depth_model_imgs[model_name][idx])
+                                                                            , cv2.IMREAD_GRAYSCALE)]) / 255
 
         return rgb_img, semantic_img, depth_img, semantic_model_preds, depth_model_preds
 

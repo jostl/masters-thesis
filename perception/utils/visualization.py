@@ -123,9 +123,10 @@ def show_predictions(model, inputs, device, semantic_classes, n_displays=1, titl
         display_originals_with_decoded(original_images=original_images, decoded_images=decoded_images, title=title)
 
 
-def plot_image(image, cmap="binary"):
+def plot_image(image, title="", cmap="binary"):
     # todo: https://stackoverflow.com/questions/49643907/clipping-input-data-to-the-valid-range-for-imshow-with-rgb-data-0-1-for-floa
     plt.imshow(image, cmap=cmap)
+    plt.title(title)
     plt.show()
 
 
