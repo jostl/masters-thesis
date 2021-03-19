@@ -233,6 +233,7 @@ def main(params):
     total = 0
 
     for i in tqdm.tqdm(range(params.n_episodes), desc='Episode'):
+        print("Episode:", i)
         with make_suite('DataCollectionTown01', port=params.port, planner=params.planner) as env:
             filepath = save_dir.joinpath('%03d' % i)
 

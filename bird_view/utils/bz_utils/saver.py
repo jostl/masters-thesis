@@ -49,12 +49,12 @@ def _format(**kwargs):
 
 
 class Experiment(object):
-    def init(self, log_dir):
+    def init(self, log_dir, epoch=0):
         """
         This MUST be called.
         """
         self._log = logger
-        self.epoch = 0
+        self.epoch = epoch
         self.scalars = OrderedDict()
 
         self.log_dir = Path(log_dir).resolve()

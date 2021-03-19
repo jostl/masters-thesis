@@ -222,7 +222,7 @@ class PedestrianTracker(object):
                     break
             
             ped_controller.go_to_location(loc)
-            print ("Teleported walker %d to %s"%(ped_id, loc))
+            #print ("Teleported walker %d to %s"%(ped_id, loc))
         
 
 class TrafficTracker(object):
@@ -418,7 +418,7 @@ class CarlaWrapper(object):
             spawn_point = spawn_points.pop(random.randrange(len(spawn_points)))
             spawn_command = SpawnActor(blueprint, spawn_point).then(SetAutoPilot(FutureActor, True))
             batch.append(spawn_command)
-        responses = self._client.apply_batch_sync(batch, True)
+        responses = self._client.apply_batch_sync(batch, False)
         for response in responses:
             vehicle = self._world.get_actor(response.actor_id)
             self._actor_dict['vehicle'].append(vehicle)
@@ -458,7 +458,8 @@ class CarlaWrapper(object):
     
             for result in self._client.apply_batch_sync(batch, True):
                 if result.error:
-                    print(result.error)
+                    #print(result.error)
+                    pass
                 else:
                     peds_spawned += 1
                     _walkers.append(result.actor_id)
