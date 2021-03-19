@@ -222,7 +222,7 @@ class PedestrianTracker(object):
                     break
             
             ped_controller.go_to_location(loc)
-            print ("Teleported walker %d to %s"%(ped_id, loc))
+            #print ("Teleported walker %d to %s"%(ped_id, loc))
         
 
 class TrafficTracker(object):
