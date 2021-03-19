@@ -1,14 +1,12 @@
-import time
 import argparse
-
-from pathlib import Path
-
-import numpy as np
-import tqdm
-
 import glob
 import os
 import sys
+from pathlib import Path
+
+import numpy as np
+import torch
+import tqdm
 
 try:
     sys.path.append(glob.glob('PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
@@ -166,7 +164,6 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
 
 def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, config, episode):
 
-    import torch
     from training.phase2_utils import _log_visuals, get_weight, repeat
 
     import torch.distributions as tdist
@@ -274,28 +271,33 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
 
 def train(config):
-
     import utils.bz_utils as bzu
-
-    bzu.log.init(config['log_dir'])
-    bzu.log.save_config(config)
-    teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
-
     from training.phase2_utils import (
         CoordConverter,
         ReplayBuffer,
         LocationLoss,
         load_birdview_model,
-        setup_image_model,
-        load_image_model,
-        get_optimizer
+        setup_image_model
         )
+
+    if config['resume']:
+        print("Resuming from earlier run. Attempting to load replay buffer and epoch number.")
+        replay_buffer = torch.load(config['log_dir']+'/replay_buffer.saved')
+        begin_episode = torch.load(config['log_dir']+'/episode.saved')
+        begin_episode += 1  # add one because we want to go to the next
+    else:
+        replay_buffer = ReplayBuffer(**config["buffer_args"])
+        begin_episode = 0
+
+    bzu.log.init(config['log_dir'], epoch=begin_episode)
+    bzu.log.save_config(config)
+    #teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
 
     criterion = LocationLoss()
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False)
 
     teacher_net = load_birdview_model(
-        teacher_config['model_args']['backbone'],
+        "resnet18",
         config['teacher_args']['model_path'],
         device=config['device'])
 
@@ -303,15 +305,18 @@ def train(config):
 
     coord_converter = CoordConverter(**config["agent_args"]['camera_args'])
 
-    replay_buffer = ReplayBuffer(**config["buffer_args"])
-
     # optimizer = get_optimizer(net.parameters(), config["optimizer_args"]["lr"])
 
-    for episode in tqdm.tqdm(range(config['max_episode']), desc='Episode'):
+    for episode in tqdm.tqdm(range(begin_episode, config['max_episode']+begin_episode), initial=begin_episode,
+                             desc='Episode'):
         rollout(replay_buffer, coord_converter, net, teacher_net, episode, episode_length=config['episode_length'],
                 image_agent_kwargs=image_agent_kwargs, port=config['port'])
         # import pdb; pdb.set_trace()
         _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
+
+        torch.save(replay_buffer, config['log_dir']+'/replay_buffer.saved')
+        torch.save(episode, config['log_dir']+'/episode.saved')
+        print("Replay buffer and episode number (", episode,") saved.", sep="")
 
 if __name__ == '__main__':
 
@@ -324,6 +329,9 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--speed_noise', type=float, default=0.0)
     parser.add_argument('--batch_aug', type=int, default=1)
+
+    # resume flag will continue from last saved epoch with the saved replay buffer. Assumes identical config
+    parser.add_argument('--resume', action='store_true')
 
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--perception_ckpt', default="")
@@ -353,6 +361,7 @@ if __name__ == '__main__':
             'epoch_per_episode': parsed.epoch_per_episode,
             'device': 'cuda',
             'phase1_ckpt': parsed.ckpt,
+            'resume': parsed.resume,
             'optimizer_args': {'lr': parsed.lr},
             'buffer_args': {
                 'buffer_limit': 200000,
