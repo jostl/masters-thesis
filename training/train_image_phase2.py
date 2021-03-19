@@ -115,9 +115,13 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
 
                 image_agent = ImageAgent(**image_agent_kwargs)
                 birdview_agent = BirdViewAgent(**birdview_agent_kwargs)
-
+                i = 0
                 while not env.is_success() and not env.collided:
                     env.tick()
+                    
+                    i += 1
+                    if i%50==0:
+                    	env.move_spectator_to_player()
 
                     observations = env.get_observations()
                     image_control, _image_points = image_agent.run_step(observations, teaching=True)
