@@ -281,9 +281,9 @@ def train(config):
         )
 
     if config['resume']:
-        print("Resuming from earlier run. Attempting to load replay buffer and epoch number.")
-        replay_buffer = torch.load(config['log_dir']+'/replay_buffer.saved')
-        begin_episode = torch.load(config['log_dir']+'/episode.saved')
+        print("Resuming from earlier run. Loading previous replay buffer and epoch number.")
+        replay_buffer = torch.load(Path(config['log_dir']) / 'replay_buffer.saved')
+        begin_episode = torch.load(Path(config['log_dir']) / 'episode.saved')
         begin_episode += 1  # add one because we want to go to the next
     else:
         replay_buffer = ReplayBuffer(**config["buffer_args"])
@@ -294,7 +294,9 @@ def train(config):
     #teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
 
     criterion = LocationLoss()
-    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False)
+    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False,
+                            resume=config["resume"],
+                            resume_weights=Path(config['log_dir']) / ('model-%d.th' % (begin_episode - 1)))
 
     teacher_net = load_birdview_model(
         "resnet18",
@@ -314,8 +316,8 @@ def train(config):
         # import pdb; pdb.set_trace()
         _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
 
-        torch.save(replay_buffer, config['log_dir']+'/replay_buffer.saved')
-        torch.save(episode, config['log_dir']+'/episode.saved')
+        torch.save(replay_buffer, Path(config['log_dir']) / 'replay_buffer.saved')
+        torch.save(episode, Path(config['log_dir']) / 'episode.saved')
         print("Replay buffer and episode number (", episode,") saved.", sep="")
 
 if __name__ == '__main__':
