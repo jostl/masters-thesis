@@ -84,6 +84,8 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=10
 
     # depth estimation metrics
     accuracy_with_threshold_accumulated = defaultdict(int)
+    accuracy_with_threshold2_accumulated = defaultdict(int)
+    accuracy_with_threshold3_accumulated = defaultdict(int)
     rmse_accumulated = defaultdict(int)
 
     for rgb_targets, segmentation_targets, depth_targets, segmentation_preds, depth_preds in tqdm(dataloader):
@@ -96,11 +98,16 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=10
             #plot_segmentation(img)
 
         for model in depth_preds:
-            accuracy_with_threshold_accumulated[model] += accuracy_within_threshold(depth_targets, depth_preds[model])
+            accuracy_with_threshold_accumulated[model] += accuracy_within_threshold(depth_targets, depth_preds[model],
+                                                                                    threshold=1.25)
+            accuracy_with_threshold2_accumulated[model] += accuracy_within_threshold(depth_targets, depth_preds[model],
+                                                                                    threshold=1.25**2)
+            accuracy_with_threshold3_accumulated[model] += accuracy_within_threshold(depth_targets, depth_preds[model],
+                                                                                    threshold=1.25**3)
             rmse_accumulated[model] += rmse(depth_targets, depth_preds[model])
 
-            img = depth_preds[model].numpy()[0].transpose(1, 2, 0)
-            plot_image(img, title=model)
+            #img = depth_preds[model].numpy()[0].transpose(1, 2, 0)
+            #plot_image(img, title=model)
 
     n_batches = np.ceil(len(targets) / batch_size)
 
@@ -114,16 +121,21 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=10
 
     # calculate average over batches, depth estimation
     accuracy_within_threshold_avg = {}
+    accuracy_within_threshold2_avg = {}
+    accuracy_within_threshold3_avg = {}
     rmse_avg = {}
     for model in depth_models:
         model_name = model[0]
         accuracy_within_threshold_avg[model_name] = accuracy_with_threshold_accumulated[model_name] / n_batches
+        accuracy_within_threshold2_avg[model_name] = accuracy_with_threshold2_accumulated[model_name] / n_batches
+        accuracy_within_threshold3_avg[model_name] = accuracy_with_threshold3_accumulated[model_name] / n_batches
         rmse_avg[model_name] = rmse_accumulated[model_name] / n_batches
-
+        print("---")
         print("Model:", model_name, "has accuracy within threshold avg:", accuracy_within_threshold_avg[model_name])
+        print("Model:", model_name, "has accuracy within threshold2 avg:", accuracy_within_threshold2_avg[model_name])
+        print("Model:", model_name, "has accuracy within threshold3 avg:", accuracy_within_threshold3_avg[model_name])
         print("Model:", model_name, "has rmse avg:", rmse_avg[model_name])
-
-    print("finished comparison, this print is here for debugging reasons")
+        print("---")
 
 
     # TODO speed measurement - dette blir nesten en egen greie
