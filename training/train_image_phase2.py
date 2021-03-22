@@ -118,8 +118,8 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
                     env.tick()
                     
                     i += 1
-                    if i%50==0:
-                    	env.move_spectator_to_player()
+                    if i % 50 == 0:
+                        env.move_spectator_to_player()
 
                     observations = env.get_observations()
                     image_control, _image_points = image_agent.run_step(observations, teaching=True)
@@ -167,7 +167,7 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
     from training.phase2_utils import _log_visuals, get_weight, repeat
 
     import torch.distributions as tdist
-    noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
+    #noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
 
     teacher_net.eval()
 
@@ -179,7 +179,8 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
         replay_buffer.init_new_weights()
         loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=0, pin_memory=True, shuffle=True, drop_last=True)
 
-        for i, (idxes, rgb_image, command, speed, target, birdview) in tqdm.tqdm(enumerate(loader)):
+        description = "Epoch " + str(epoch)
+        for i, (idxes, rgb_image, command, speed, target, birdview) in tqdm.tqdm(enumerate(loader), desc=description):
             #if i % 100 == 0:
                 #print ("ITER: %d"%i)
             rgb_image = rgb_image.to(config['device']).float()
@@ -280,23 +281,24 @@ def train(config):
         setup_image_model
         )
 
-    if config['resume']:
-        print("Resuming from earlier run. Loading previous replay buffer and epoch number.")
-        replay_buffer = torch.load(Path(config['log_dir']) / 'replay_buffer.saved')
-        begin_episode = torch.load(Path(config['log_dir']) / 'episode.saved')
+    if config['resume_episode'] > 0:
+        print("Resuming from earlier run. Loading replay buffer from episode {}".format(config["resume_episode"]))
+        replay_buffer = torch.load(Path(config['log_dir']) / 'replay_buffer-{}.saved'.format(config["resume_episode"]))
+        begin_episode = config['resume_episode']
         begin_episode += 1  # add one because we want to go to the next
+
+        # overwrite the config to load the correct weights
+        config['image_ckpt'] = Path(config['log_dir']) / ('model-%d.th' % (begin_episode - 1))
     else:
         replay_buffer = ReplayBuffer(**config["buffer_args"])
         begin_episode = 0
 
-    bzu.log.init(config['log_dir'], epoch=begin_episode)
+    bzu.log.init(config['log_dir'], epoch=begin_episode * config['epoch_per_episode'])
     bzu.log.save_config(config)
     #teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
 
     criterion = LocationLoss()
-    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False,
-                            resume=config["resume"],
-                            resume_weights=Path(config['log_dir']) / ('model-%d.th' % (begin_episode - 1)))
+    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False)
 
     teacher_net = load_birdview_model(
         "resnet18",
@@ -315,10 +317,9 @@ def train(config):
                 image_agent_kwargs=image_agent_kwargs, port=config['port'])
         # import pdb; pdb.set_trace()
         _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
-
-        torch.save(replay_buffer, Path(config['log_dir']) / 'replay_buffer.saved')
-        torch.save(episode, Path(config['log_dir']) / 'episode.saved')
-        print("Replay buffer and episode number (", episode,") saved.", sep="")
+        print("Saving replay buffer...")
+        torch.save(replay_buffer, Path(config['log_dir']) / 'replay_buffer-{}.saved'.format(episode))
+        print("Replay buffer for episode number (", episode,") saved.", sep="")
 
 if __name__ == '__main__':
 
@@ -332,8 +333,8 @@ if __name__ == '__main__':
     parser.add_argument('--speed_noise', type=float, default=0.0)
     parser.add_argument('--batch_aug', type=int, default=1)
 
-    # resume flag will continue from last saved epoch with the saved replay buffer. Assumes identical config
-    parser.add_argument('--resume', action='store_true')
+    # resume flag will continue from the chosen epoch with the saved replay buffer. Assumes identical config
+    parser.add_argument('--resume_episode', type=int, default=0)
 
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--perception_ckpt', default="")
@@ -363,7 +364,7 @@ if __name__ == '__main__':
             'epoch_per_episode': parsed.epoch_per_episode,
             'device': 'cuda',
             'phase1_ckpt': parsed.ckpt,
-            'resume': parsed.resume,
+            'resume_episode': parsed.resume_episode,
             'optimizer_args': {'lr': parsed.lr},
             'buffer_args': {
                 'buffer_limit': 200000,
