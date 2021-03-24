@@ -89,7 +89,7 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=10
     rmse_accumulated = defaultdict(int)
 
     for rgb_targets, segmentation_targets, depth_targets, segmentation_preds, depth_preds in tqdm(dataloader):
-
+        print("SEMANTIC SEGMENTATION:")
         for model in segmentation_preds:
             mean_intersection_over_union_accumulated[model] \
                 += jaccard_index(segmentation_targets, segmentation_preds[model])
@@ -97,6 +97,7 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=10
             #img = segmentation_preds[model].numpy()[0].transpose(1, 2, 0)
             #plot_segmentation(img)
 
+        print("\nDEPTH ESTIMATION")
         for model in depth_preds:
             accuracy_with_threshold_accumulated[model] += accuracy_within_threshold(depth_targets, depth_preds[model],
                                                                                     threshold=1.25)
