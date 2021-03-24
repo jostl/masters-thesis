@@ -34,7 +34,7 @@ random.seed(4)
 
 FPS = 10
 TIMEOUT = 2
-SENSOR_TICK = 5.0  # Seconds between each sensor tick
+SENSOR_TICK = 20.0  # Seconds between each sensor tick
 
 TRAINING_WEATHERS = [1, 3, 6, 8]
 TEST_WEATHERS = [10, 14]
@@ -49,12 +49,16 @@ def spawn_sensors(world: carla.World, actor: carla.Actor) -> Dict[str, carla.Sen
         "depth": world.get_blueprint_library().find('sensor.camera.depth')
     }
 
+    # the camera placement is very weird on this car
+    if actor.type_id == "vehicle.carlamotors.carlacola":
+        return sensors
+
     fov = 90
     yaw = random.gauss(0, 45)
     sensor_transform = carla.Transform(carla.Location(0, 0, 3), carla.Rotation(0, yaw, 0))
     for sensor_name, blueprint in blueprints.items():
-        blueprint.set_attribute("image_size_x", "640")
-        blueprint.set_attribute("image_size_y", "480")
+        blueprint.set_attribute("image_size_x", "384")
+        blueprint.set_attribute("image_size_y", "160")
         blueprint.set_attribute("fov", str(fov))
         blueprint.set_attribute("sensor_tick", str(SENSOR_TICK))  # Get new data every x second
         sensor: carla.Sensor = world.spawn_actor(blueprint, sensor_transform, attach_to=actor)
@@ -183,7 +187,7 @@ weather_names = {
 
 
 def main():
-    town = "Town01"
+    town = "Town02"
     weathers = TRAINING_WEATHERS
     #weathers = TEST_WEATHERS
     client = carla.Client("127.0.0.1", 2000)
@@ -192,11 +196,11 @@ def main():
     traffic_manager.set_global_distance_to_leading_vehicle(2.0)
     traffic_manager.global_percentage_speed_difference(25.0)
 
-    dataset_name = "train"
-    folder_name = "train_10k"
+    folder_name = "test_new"
+
     n_vehicles = 100
     n_pedestrians = 250
-    total_images = 10000
+    total_images = 2000
     n_images_per_weather = total_images // len(weathers)
     n_images_per_vehicle_per_weather = n_images_per_weather // n_vehicles
 
@@ -244,8 +248,10 @@ def main():
             # print(f"Tick ({frame})")
 
             for vehicle_id, vehicle_sensors in vehicle_sensor_queues.items():
-                new_yaw = random.gauss(0, 45)
                 frame_nums = []
+
+                changed_yaw = False
+
                 for sensor_name, (queue, sensor) in vehicle_sensors.items():
                     try:
                         image = retrieve_data(frame, queue, TIMEOUT)
@@ -254,8 +260,17 @@ def main():
                         # print(f"Got image from {sensor_name} {image.frame}")
                         frame_nums.append(image.frame)
                         image.save_to_disk(
-                            f"data/perception/{folder_name}/{dataset_name}/{sensor_name}/{weather_name}_{vehicle_id}_{image.frame}.png",
+                            f"data/perception/{folder_name}/{sensor_name}/{weather_name}_{vehicle_id}_{image.frame}.png",
                             get_color_converter(sensor_name))
+
+                        if not changed_yaw:
+                            old_yaw = sensor.get_transform().rotation.yaw
+                            new_yaw = random.gauss(0, 45)
+                            while abs(new_yaw - old_yaw) < 35:
+                                new_yaw = random.gauss(0, 45)
+
+                            changed_yaw = True
+
                         sensor.set_transform(carla.Transform(carla.Location(0, 0, 3), carla.Rotation(0, new_yaw, 0)))
                     except Empty:
                         pass
@@ -283,4 +298,5 @@ def main():
         client.apply_batch_sync([carla.command.DestroyActor(x) for x in (walker_controllers)], True)
 
 
-main()
+if __name__ == "__main__":
+    main()

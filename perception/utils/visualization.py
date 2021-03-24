@@ -36,7 +36,7 @@ def get_rgb_segmentation(semantic_image: np.ndarray, class_colors):
     return semantic_image_rgb
 
 
-def display_images_horizontally(images):
+def display_images_horizontally(images, fig_width, fig_height):
     # Inspired from Hands-On Machine Learning with SciKit-learn, Keras and TensorFlow, page 574
     # Displays the list of images horizontally.
 
@@ -48,7 +48,7 @@ def display_images_horizontally(images):
 
     n_images = len(images)
     if n_images > 0:
-        fig = plt.figure(figsize=(n_images * 1.5, 3))
+        fig = plt.figure(figsize=(fig_width, fig_height))
         for image_index in range(n_images):
             image = images[image_index]
             plt.subplot(1, n_images, 1 + image_index)
