@@ -1,9 +1,11 @@
 import copy
 import math
 import time
+from pathlib import Path
 
 import torch
 import torch.optim as optim
+from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
@@ -40,6 +42,14 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
     start = time.time()
     last_time = start
+
+    # Tensorboard logging
+    train_log_path = model_save_path / "logs/train"
+    val_log_path = model_save_path / "logs/val"
+    train_log_path.mkdir(parents=True)
+    val_log_path.mkdir(parents=True)
+    writer_train = SummaryWriter(model_save_path / "logs/train")
+    writer_val = SummaryWriter(model_save_path / "logs/val")
 
     for epoch in range(n_epochs):
         print('-' * 10)
@@ -100,29 +110,38 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
                 best_val_loss = epoch_loss
                 best_model_weights = copy.deepcopy(model.state_dict())
 
+            writer = writer_train if phase == "train" else writer_val
+            writer.add_scalar(phase+"_loss", epoch_loss, epoch)
+
         now = time.time()
         time_elapsed = now - last_time
         print("Epoch completed in {:.0f}m {:.0f}s".format(
             time_elapsed // 60, time_elapsed % 60))
         last_time = now
 
+        # Show image from the validation set together with decoded predictions
+        class_colors = get_segmentation_colors(len(DEFAULT_CLASSES) + 1, class_indxs=DEFAULT_CLASSES)
+        semantic_target_rgb = get_rgb_segmentation(semantic_image=display_images[1],
+                                                 class_colors=class_colors)
+        semantic_pred_rgb = get_rgb_segmentation(semantic_image=display_images[2],
+                                                 class_colors=class_colors)
+        semantic_target_rgb = semantic_target_rgb / 255
+        display_images[1] = semantic_target_rgb
+        semantic_pred_rgb = semantic_pred_rgb / 255
+        display_images[2] = semantic_pred_rgb
+
         if display_img_after_epoch:
-            # Show image from the validation set together with decoded predictions
-            class_colors = get_segmentation_colors(len(DEFAULT_CLASSES) + 1, class_indxs=DEFAULT_CLASSES)
-            semantic_target_rgb = get_rgb_segmentation(semantic_image=display_images[1],
-                                                     class_colors=class_colors)
-            semantic_pred_rgb = get_rgb_segmentation(semantic_image=display_images[2],
-                                                     class_colors=class_colors)
-            semantic_target_rgb = semantic_target_rgb / 255
-            display_images[1] = semantic_target_rgb
-            semantic_pred_rgb = semantic_pred_rgb / 255
-            display_images[2] = semantic_pred_rgb
-            display_images_horizontally(display_images, 6, 1)
+            display_images_horizontally(display_images, fig_width=6, fig_height=1)
+
+        writer_val.add_image("input", display_images[0].transpose(2, 0, 1), epoch)
+        writer_val.add_image("target", display_images[1].transpose(2, 0, 1), epoch)
+        writer_val.add_image("prediction", display_images[2].transpose(2, 0, 1), epoch)
 
         # Save the model
         if save_model_weights:
-            print("Saving weights to:", model_save_path)
-            torch.save(model.state_dict(), model_save_path + "epoch" + str(epoch + 1) + ".pt")
+            path = model_save_path / "epoch-{}.pt".format(epoch+1)
+            print("Saving weights to:", path)
+            torch.save(model.state_dict(), path)
 
     time_elapsed = time.time() - start
     print("Training complete in {:.0f}m {:.0f}s".format(
@@ -133,20 +152,24 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
     # Save the model
     if save_model_weights:
-        print("Saving best weights to:", model_save_path)
-        torch.save(model.state_dict(), model_save_path)
+        path = model_save_path / "best_weights.pt"
+        print("Saving best weights to:", path)
+        torch.save(model.state_dict(), path)
     return model
 
 
 def main():
-    model_name = "deeplabv3-resnet50-test"
-    model_save_path = "training_logs/perception/{}".format(model_name)
+    model_name = "deeplabv3-resnet50-test4"
+    model_save_path = Path("training_logs/perception") / model_name
+
     validation_set_size = 0.2
-    max_n_instances = 100
+    max_n_instances = 50
     batch_size = 12
     semantic_classes = DEFAULT_CLASSES
     augment_strategy = "super_hard"
     path = "data/perception/test_new"
+
+    model_save_path.mkdir(parents=True)
     dataloaders = create_dataloaders_with_multi_task_dataset(path=path, validation_set_size=validation_set_size,
                                                              semantic_classes=semantic_classes,
                                                              batch_size=batch_size, max_n_instances=max_n_instances,
@@ -155,6 +178,8 @@ def main():
     save_model_weights = True
     display_img_after_epoch = True
     n_epochs = 30
+
+    use_class_weights = True  # TODO
 
     model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1)
     criterion = torch.nn.CrossEntropyLoss()
