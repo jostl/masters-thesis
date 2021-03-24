@@ -288,7 +288,7 @@ def train(config):
         begin_episode += 1  # add one because we want to go to the next
 
         # overwrite the config to load the correct weights
-        config['image_ckpt'] = Path(config['log_dir']) / ('model-%d.th' % (begin_episode - 1))
+        config['model_args']['image_ckpt'] = Path(config['log_dir']) / ('model-%d.th' % (begin_episode - 1))
     else:
         replay_buffer = ReplayBuffer(**config["buffer_args"])
         begin_episode = 0
