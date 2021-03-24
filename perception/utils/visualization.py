@@ -106,7 +106,7 @@ def show_predictions(model, inputs, device, semantic_classes, n_displays=1, titl
         semantic_target = semantic_targets[i]
         depth_target = depth_targets[i]
 
-        class_colors = get_segmentation_colors(semantic_classes, class_indxs=semantic_classes)
+        class_colors = get_segmentation_colors(n_classes=len(semantic_classes) + 1, class_indxs=semantic_classes)
 
         semantic_pred_rgb = get_rgb_segmentation(semantic_image=semantic_pred, class_colors=class_colors)
         semantic_target_rgb = get_rgb_segmentation(semantic_image=semantic_target, class_colors=class_colors)
