@@ -34,7 +34,7 @@ random.seed(4)
 
 FPS = 10
 TIMEOUT = 2
-SENSOR_TICK = 20.0  # Seconds between each sensor tick
+SENSOR_TICK = 30.0  # Seconds between each sensor tick
 
 TRAINING_WEATHERS = [1, 3, 6, 8]
 TEST_WEATHERS = [10, 14]
@@ -171,6 +171,11 @@ def spawn_pedestrians(client, world, n_pedestrians):
         controllers.extend(_controllers)
         walkers.extend(_walkers)
 
+    for controller in world.get_actors(controllers):
+        controller.start()
+        controller.go_to_location(world.get_random_location_from_navigation())
+        controller.set_max_speed(1 + random.random())
+
     print("spawned %d pedestrians" % len(controllers))
 
     return world.get_actors(walkers), world.get_actors(controllers)
@@ -187,7 +192,7 @@ weather_names = {
 
 
 def main():
-    town = "Town02"
+    town = "Town01"
     weathers = TRAINING_WEATHERS
     #weathers = TEST_WEATHERS
     client = carla.Client("127.0.0.1", 2000)
@@ -196,11 +201,11 @@ def main():
     traffic_manager.set_global_distance_to_leading_vehicle(2.0)
     traffic_manager.global_percentage_speed_difference(25.0)
 
-    folder_name = "test_new"
+    folder_name = "train50k"
 
     n_vehicles = 100
     n_pedestrians = 250
-    total_images = 2000
+    total_images = 50000
     n_images_per_weather = total_images // len(weathers)
     n_images_per_vehicle_per_weather = n_images_per_weather // n_vehicles
 
@@ -219,6 +224,7 @@ def main():
         world.set_weather(PRESET_WEATHERS[weather])
         vehicles_list = spawn_vehicles(client, world, n_vehicles)
         walkers, walker_controllers = spawn_pedestrians(client, world, n_pedestrians)
+
 
         # print("Running the world for 5 seconds before capturing...")
         frame = start_frame
@@ -265,9 +271,9 @@ def main():
 
                         if not changed_yaw:
                             old_yaw = sensor.get_transform().rotation.yaw
-                            new_yaw = random.gauss(0, 45)
-                            while abs(new_yaw - old_yaw) < 35:
-                                new_yaw = random.gauss(0, 45)
+                            new_yaw = random.gauss(0, 30)
+                            while abs(new_yaw - old_yaw) < 60:
+                                new_yaw = random.gauss(0, 30)
 
                             changed_yaw = True
 
