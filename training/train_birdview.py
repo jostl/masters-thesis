@@ -212,7 +212,9 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1e-4)
 
     parsed = parser.parse_args()
-
+    
+    print("Cuda is available:", torch.cuda.is_available())
+    
     config = {
             'log_dir': parsed.log_dir,
             'resume': parsed.resume,

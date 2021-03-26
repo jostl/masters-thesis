@@ -222,7 +222,7 @@ class PedestrianTracker(object):
                     break
             
             ped_controller.go_to_location(loc)
-            print ("Teleported walker %d to %s"%(ped_id, loc))
+            #print ("Teleported walker %d to %s"%(ped_id, loc))
         
 
 class TrafficTracker(object):
@@ -459,7 +459,8 @@ class CarlaWrapper(object):
     
             for result in self._client.apply_batch_sync(batch, True):
                 if result.error:
-                    print(result.error)
+                    #print(result.error)
+                    pass
                 else:
                     peds_spawned += 1
                     _walkers.append(result.actor_id)

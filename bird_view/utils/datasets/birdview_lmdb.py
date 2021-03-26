@@ -62,6 +62,7 @@ class BirdViewDataset(Dataset):
         n_episodes = 0
 
         for full_path in sorted(glob.glob('%s/**' % dataset_path), reverse=True):
+            print("full_path:", full_path)
             txn = lmdb.open(
                     full_path,
                     max_readers=1, readonly=True,
