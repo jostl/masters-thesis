@@ -289,6 +289,17 @@ class ReplayBuffer(torch.utils.data.Dataset):
         return torch.stack(rgb_images), torch.stack(bird_views), torch.FloatTensor(cmds), torch.FloatTensor(
             speeds), torch.FloatTensor(targets)
 
+    def get_weights(self):
+        return self._weights
+
+    def get_image_data(self):
+        image_data = [self._data[i][0:-1] for i in range(len(self._data))]
+        return image_data
+
+    def get_birdview_data(self):
+        birdview_data = [self._data[i][-1] for i in range(len(self._data))]
+        return birdview_data
+
 
 def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="", n_semantic_classes=6,
                       image_ckpt="", all_branch=False, **kwargs):

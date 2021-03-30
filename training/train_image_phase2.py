@@ -279,23 +279,45 @@ def train(config):
         LocationLoss,
         load_birdview_model,
         setup_image_model
-        )
-
+    )
+    replay_buffer = ReplayBuffer(**config["buffer_args"])
     if config['resume_episode'] > 0:
-        print("Resuming from earlier run. Loading replay buffer from episode {}".format(config["resume_episode"]))
-        replay_buffer = torch.load(Path(config['log_dir']) / 'replay_buffer-{}.saved'.format(config["resume_episode"]))
+        print("Resuming from previous run. Setting up replay buffer from episode {}".format(config["resume_episode"]))
+        print("Loading rgb images, cmds, speeds and targets")
+        image_data = torch.load(
+            Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(config["resume_episode"]))
+
+        print("Loading birdview images")
+        birdview_data = torch.load(
+            Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(config["resume_episode"]))
+
+        assert len(birdview_data) == len(image_data), "Length of image-data and birdview-data is not the same."
+
+        print("Loading replay buffer weights")
+        replay_buffer_weights = torch.load(
+            Path(config['log_dir']) / 'replay_buffer-{}_weights.saved'.format(config["resume_episode"]))
+
+        assert len(replay_buffer_weights) == len(image_data), "dint find enough weights"
+
+        for i in range(len(image_data)):
+            rgb_img, cmd, speed, target = image_data[i]
+            birdview = birdview_data[i]
+            weight = replay_buffer_weights[i]
+            replay_buffer.add_data(rgb_img, cmd, speed, target, birdview, weight)
+        replay_buffer.normalized = True
+        print("Replay buffer complete.")
+
         begin_episode = config['resume_episode']
         begin_episode += 1  # add one because we want to go to the next
 
         # overwrite the config to load the correct weights
         config['model_args']['image_ckpt'] = Path(config['log_dir']) / ('model-%d.th' % (begin_episode - 1))
     else:
-        replay_buffer = ReplayBuffer(**config["buffer_args"])
         begin_episode = 0
 
     bzu.log.init(config['log_dir'], epoch=begin_episode * config['epoch_per_episode'])
     bzu.log.save_config(config)
-    #teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
+    # teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
 
     criterion = LocationLoss()
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False)
@@ -305,24 +327,35 @@ def train(config):
         config['teacher_args']['model_path'],
         device=config['device'])
 
-    image_agent_kwargs = { 'camera_args' : config["agent_args"]['camera_args'] }
+    image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
 
     coord_converter = CoordConverter(**config["agent_args"]['camera_args'])
 
     # optimizer = get_optimizer(net.parameters(), config["optimizer_args"]["lr"])
 
-    for episode in tqdm.tqdm(range(begin_episode, config['max_episode']+begin_episode), initial=begin_episode,
+    for episode in tqdm.tqdm(range(begin_episode, config['max_episode'] + begin_episode), initial=begin_episode,
                              desc='Episode'):
         rollout(replay_buffer, coord_converter, net, teacher_net, episode, episode_length=config['episode_length'],
                 image_agent_kwargs=image_agent_kwargs, port=config['port'])
+
+        print("Saving rgb images, cmds, speeds and targets from replay buffer...")
+        torch.save(replay_buffer.get_image_data(),
+                   Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
+
+        print("Saving birdview images from replay buffer...")
+        torch.save(replay_buffer.get_birdview_data(),
+                   Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(episode))
+        print("Rollout-data saved.", sep="")
         # import pdb; pdb.set_trace()
         _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
-        print("Saving replay buffer...")
-        torch.save(replay_buffer, Path(config['log_dir']) / 'replay_buffer-{}.saved'.format(episode))
-        print("Replay buffer for episode number (", episode,") saved.", sep="")
+
+        print("Saving replay buffer weights ...")
+        torch.save(replay_buffer.get_weights(),
+                   Path(config["log_dir"]) / "replay_buffer-{}_weights.saved".format(episode))
+        print("Replay buffer weights for episode number (", episode, ") saved.", sep="")
+
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--log_iterations', default=100)
