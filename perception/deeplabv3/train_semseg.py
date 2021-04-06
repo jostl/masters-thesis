@@ -130,7 +130,11 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
             display = True if phase == "val" and display_img_after_epoch else False
 
-            img = display_images_horizontally(display_images, fig_width=10, fig_height=1.6, display=display)
+            figtitle = "{} visualization after epoch {}".format(phase, epoch)
+            subtitles = ["augmented input", "ground truth", "prediction"]
+
+            img = display_images_horizontally(display_images, fig_width=10, fig_height=2, display=display,
+                                              title=figtitle, subplot_titles=subtitles)
 
             writer.add_image("{} comparison".format(phase), img.transpose(2, 0, 1), epoch)
 
@@ -162,7 +166,7 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
 
 def main():
-    model_name = "deeplabv3-resnet101-test1"
+    model_name = "deeplabv3-resnet50-test2"
     model_save_path = Path("training_logs/perception") / model_name
 
     validation_set_size = 0.2
@@ -184,7 +188,7 @@ def main():
 
     use_class_weights = True  # TODO
 
-    model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone="resnet101", pretrained=True)
+    model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone="resnet50", pretrained=True)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 

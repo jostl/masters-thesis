@@ -36,7 +36,7 @@ def get_rgb_segmentation(semantic_image: np.ndarray, class_colors):
     return semantic_image_rgb
 
 
-def display_images_horizontally(images, fig_width, fig_height, display=True):
+def display_images_horizontally(images, fig_width, fig_height, display=True, title=None, subplot_titles=None):
     # Inspired from Hands-On Machine Learning with SciKit-learn, Keras and TensorFlow, page 574
     # Displays the list of images horizontally.
 
@@ -47,13 +47,24 @@ def display_images_horizontally(images, fig_width, fig_height, display=True):
         # plt.show()
 
     n_images = len(images)
+
+    if subplot_titles is not None:
+        assert len(subplot_titles) == n_images, "need a subtitle for every image"
+
     if n_images > 0:
         fig = plt.figure(figsize=(fig_width, fig_height))
         for image_index in range(n_images):
             image = images[image_index]
-            plt.subplot(1, n_images, 1 + image_index)
+            ax = plt.subplot(1, n_images, 1 + image_index)
+
+            if subplot_titles is not None:
+                ax.set_title(subplot_titles[image_index])
+
             cmap = "binary" if len(images[image_index].shape) == 3 else "gray"
             plot_image(image, cmap=cmap)
+
+        if title is not None:
+            fig.suptitle(title, fontsize="x-large")
 
         if display:
             fig.show()
