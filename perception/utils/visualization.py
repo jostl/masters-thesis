@@ -58,7 +58,11 @@ def display_images_horizontally(images, fig_width, fig_height, display=True):
         if display:
             fig.show()
 
-        return get_np_array_from_figure(fig)
+        array = get_np_array_from_figure(fig)
+
+        plt.close()
+
+        return array
 
 
 def get_np_array_from_figure(fig):
