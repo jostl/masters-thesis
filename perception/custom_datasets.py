@@ -13,7 +13,8 @@ from perception.utils.segmentation_labels import DEFAULT_CLASSES
 class MultiTaskDataset(Dataset):
     """Dataset of folder with rgb, segmentation and depth subfolders"""
 
-    def __init__(self, root_folder: str, transform=None, semantic_classes=DEFAULT_CLASSES, max_n_instances=-1, augment_strategy=None):
+    def __init__(self, root_folder: str, transform=None, semantic_classes=DEFAULT_CLASSES, max_n_instances=None,
+                 augment_strategy=None):
         self.root_folder = Path(root_folder)
         self.transform = transform
         self.semantic_classes = semantic_classes
@@ -76,7 +77,7 @@ class MultiTaskDataset(Dataset):
 class SegmentationDataset(Dataset):
     """Dataset of folder with rgb, segmentation subfolders"""
 
-    def __init__(self, root_folder: str, transform=None, semantic_classes=DEFAULT_CLASSES, max_n_instances=-1,
+    def __init__(self, root_folder: str, transform=None, semantic_classes=DEFAULT_CLASSES, max_n_instances=None,
                  augment_strategy=None):
         self.root_folder = Path(root_folder)
         self.transform = transform
@@ -142,7 +143,7 @@ class SegmentationDataset(Dataset):
 class DepthDataset(Dataset):
     """Dataset of folder with rgb and depth subfolders"""
 
-    def __init__(self, root_folder: str, transform=None, max_n_instances=-1, augment_strategy=None):
+    def __init__(self, root_folder: str, transform=None, max_n_instances=None, augment_strategy=None):
         self.root_folder = Path(root_folder)
         self.transform = transform
 
@@ -170,14 +171,20 @@ class DepthDataset(Dataset):
             self.augmenter = None
         self.batch_read_number = 819200
 
+        self.to_tensor = transforms.Compose([
+                transforms.ToTensor()
+            ])
+        self.to_tensor_and_normalize = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ])
+
+        # TODO bruk midas sine egne transforms - de reshaper til 384 x 384
+
     def __len__(self):
         return self.num_imgs
 
     def __getitem__(self, idx):
-        def transpose(img, normalize: bool):
-            img = img.transpose(2, 0, 1)
-            return img / 255 if normalize else img
-
         def read_rgb(img_path):
             return cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
 
@@ -186,19 +193,22 @@ class DepthDataset(Dataset):
             rgb_input = self.augmenter(self.batch_read_number).augment_image(rgb_target)
         else:
             rgb_input = rgb_target
-        rgb_input = transpose(rgb_input, normalize=True)
-        rgb_target = transpose(rgb_target, normalize=True)
 
-        depth_img = np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255
+        rgb_raw = rgb_input.transpose(2, 0, 1)
+
+        rgb_input = self.to_tensor_and_normalize(rgb_input)
+        rgb_target = self.to_tensor_and_normalize(rgb_target)
+        depth_img = self.to_tensor([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)])
+
         self.batch_read_number += 1
-        return rgb_input, rgb_target, depth_img
+        return rgb_input, rgb_target, depth_img, rgb_raw
 
 
 class ComparisonDataset(Dataset):
     """Dataset of folder with rgb, segmentation and depth subfolders"""
 
     def __init__(self, root_folder: str, segmentation_models, depth_models,
-                 semantic_classes=DEFAULT_CLASSES, transform=None, max_n_instances=-1):
+                 semantic_classes=DEFAULT_CLASSES, transform=None, max_n_instances=None):
 
         self.root_folder = Path(root_folder)
         self.transform = transform

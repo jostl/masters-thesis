@@ -25,6 +25,10 @@ def createDeepLabv3(outputchannels=1, backbone="resnet50", pretrained=True):
         model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained,
                                                         progress=True)
 
+    model.aux_classifier = None
+    #for param in model.parameters():
+    #    param.requires_grad = False
+
     model.classifier = DeepLabHead(2048, outputchannels)
 
     return model

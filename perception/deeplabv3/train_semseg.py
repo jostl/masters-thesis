@@ -16,9 +16,8 @@ from perception.utils.segmentation_labels import DEFAULT_CLASSES
 from perception.utils.visualization import display_images_horizontally, get_rgb_segmentation, get_segmentation_colors
 
 
-def create_dataloaders_with_multi_task_dataset(path, validation_set_size, batch_size=32,
-                                               semantic_classes=DEFAULT_CLASSES, max_n_instances=-1,
-                                               augment_strategy=None):
+def create_dataloaders(path, validation_set_size, batch_size=32, semantic_classes=DEFAULT_CLASSES,
+                       max_n_instances=None, augment_strategy=None):
 
     dataset = SegmentationDataset(root_folder=path, semantic_classes=semantic_classes, max_n_instances=max_n_instances,
                                augment_strategy=augment_strategy)
@@ -166,30 +165,34 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
 
 def main():
-    model_name = "deeplabv3-resnet50-test2"
+    random.seed(73)
+
+    model_name = "deeplabv3-r101-unfrozen"
     model_save_path = Path("training_logs/perception") / model_name
 
     validation_set_size = 0.2
-    max_n_instances = 20
-    batch_size = 6
+    max_n_instances = None
+    batch_size = 7
     semantic_classes = DEFAULT_CLASSES
     augment_strategy = "super_hard"
-    path = "data/perception/train46.5k"
+    path = "data/perception/test1"
 
     model_save_path.mkdir(parents=True)
-    dataloaders = create_dataloaders_with_multi_task_dataset(path=path, validation_set_size=validation_set_size,
+    dataloaders = create_dataloaders(path=path, validation_set_size=validation_set_size,
                                                              semantic_classes=semantic_classes,
                                                              batch_size=batch_size, max_n_instances=max_n_instances,
                                                              augment_strategy=augment_strategy)
 
     save_model_weights = True
     display_img_after_epoch = True
-    n_epochs = 30
+    n_epochs = 5
 
-    use_class_weights = True  # TODO
+    use_class_weights = False
+    # weight any class how you'd like here - we dont need to normalize these as long as reduction="mean" in criterion
+    weights = [1., 1., 1., 1., 1., 1., 1., 1., 1.]
 
-    model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone="resnet50", pretrained=True)
-    criterion = torch.nn.CrossEntropyLoss()
+    model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone="resnet101", pretrained=True)
+    criterion = torch.nn.CrossEntropyLoss(weight=weights if use_class_weights else None)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     train_model(model=model, dataloaders=dataloaders, criterion=criterion, optimizer=optimizer,
