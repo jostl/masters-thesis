@@ -163,10 +163,11 @@ def _paint(observations, control, diagnostic, debug, env, show=False):
     bzu.add_to_video(full)
 
 
-def run_single(env, weather, start, target, agent_maker, seed, autopilot, show=False):
+def run_single(env, weather, start, target, agent_maker, seed, autopilot, show=False, move_camera=False):
     # HACK: deterministic vehicle spawns.
     env.seed = seed
     env.init(start=start, target=target, weather=cu.PRESET_WEATHERS[weather])
+    print("Spawn points: ", (start, target))
 
     if not autopilot:
         agent = agent_maker()
@@ -183,8 +184,12 @@ def run_single(env, weather, start, target, agent_maker, seed, autopilot, show=F
             'total_lights': None,
             'collided': None,
             }
-
+    i = 0
     while env.tick():
+        if i % 50 == 0 and move_camera:
+            env.move_spectator_to_player()
+        i = 0 if not move_camera else i + 1
+
         observations = env.get_observations()
         control = agent.run_step(observations)
         diagnostic = env.apply_control(control)
@@ -205,7 +210,7 @@ def run_single(env, weather, start, target, agent_maker, seed, autopilot, show=F
     return result, diagnostics
 
 
-def run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_run=5, show=False):
+def run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_run=5, show=False, move_camera=False):
     """
     benchmark_dir must be an instance of pathlib.Path
     """
@@ -223,7 +228,7 @@ def run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_
 
     num_run = 0
 
-    for weather, (start, target), run_name in tqdm.tqdm(env.all_tasks, total=total):
+    for weather, (start, target), run_name in tqdm.tqdm(env.all_tasks, initial=1, total=total):
         if resume and len(summary) > 0 and ((summary['start'] == start) \
                        & (summary['target'] == target) \
                        & (summary['weather'] == weather)).any():
@@ -235,7 +240,8 @@ def run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_
 
         bzu.init_video(save_dir=str(benchmark_dir / 'videos'), save_path=run_name)
 
-        result, diagnostics = run_single(env, weather, start, target, agent_maker, seed, autopilot, show=show)
+        result, diagnostics = run_single(env, weather, start, target, agent_maker, seed, autopilot, show=show,
+                                         move_camera=move_camera)
 
         summary = summary.append(result, ignore_index=True)
 
