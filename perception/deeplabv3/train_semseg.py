@@ -2,6 +2,7 @@ import copy
 import math
 import time
 from pathlib import Path
+import random
 
 import torch
 import torch.optim as optim
@@ -10,14 +11,13 @@ from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
 from perception.custom_datasets import SegmentationDataset
-from perception.deeplabv3.models import createDeepLabv3
+from perception.deeplabv3.models import createDeepLabv3, createFCN
 from perception.utils.segmentation_labels import DEFAULT_CLASSES
 from perception.utils.visualization import display_images_horizontally, get_rgb_segmentation, get_segmentation_colors
 
 
-def create_dataloaders_with_multi_task_dataset(path, validation_set_size, batch_size=32,
-                                               semantic_classes=DEFAULT_CLASSES, max_n_instances=-1,
-                                               augment_strategy=None):
+def create_dataloaders(path, validation_set_size, batch_size=32, semantic_classes=DEFAULT_CLASSES,
+                       max_n_instances=None, augment_strategy=None):
 
     dataset = SegmentationDataset(root_folder=path, semantic_classes=semantic_classes, max_n_instances=max_n_instances,
                                augment_strategy=augment_strategy)
@@ -31,7 +31,7 @@ def create_dataloaders_with_multi_task_dataset(path, validation_set_size, batch_
 
 
 def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_path, scheduler=None,
-                save_model_weights=True, display_img_after_epoch=0, semantic_classes = DEFAULT_CLASSES):
+                save_model_weights=True, display_img_after_epoch=0, semantic_classes=DEFAULT_CLASSES):
     # determine the computational device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
@@ -54,7 +54,7 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
     for epoch in range(n_epochs):
         print('-' * 10)
         print('Epoch {}/{}'.format(epoch + 1, n_epochs))
-        display_images = None
+
         for phase in ["train", "val"]:
             if phase == "train":
                 model.train()
@@ -62,12 +62,14 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
                 model.eval()
 
             running_loss = 0.0
+            display_images = None
 
             for i, data in tqdm(enumerate(dataloaders[phase])):
                 # Get the inputs; data is a list of (RGB, semantic segmentation, depth maps).
                 rgb_input = data[0].to(device, dtype=torch.float32)
                 #rgb_target = data[1].to(device, dtype=torch.float32)
                 semantic_image = data[2].to(device, dtype=torch.float32)
+                rgb_raw = data[3]
 
                 # Find the size of rgb_image
                 input_size = rgb_input.size(0)
@@ -87,11 +89,12 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
                         loss.backward()
                         optimizer.step()
 
-                if phase == "val" and display_img_after_epoch and display_images is None:
-                    # Save image from validation set as a numpy array. Used later for displaying predictions.
-                    display_images = [rgb_input.cpu().numpy()[0].transpose(1, 2, 0),
-                                      semantic_image.cpu().numpy()[0].transpose(1, 2, 0),
-                                      outputs["out"].cpu().numpy()[0].transpose(1, 2, 0)]
+                if display_images is None:
+                    # Save image as a numpy array. Used later for displaying predictions.
+                    idx = random.randint(0, input_size-1)
+                    display_images = [rgb_raw.cpu().numpy()[idx].transpose(1, 2, 0),
+                                      semantic_image.cpu().numpy()[idx].transpose(1, 2, 0),
+                                      outputs["out"].detach().cpu().numpy()[idx].transpose(1, 2, 0)]
 
                 # statistics
                 running_loss += loss.item() * input_size
@@ -111,31 +114,34 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
                 best_model_weights = copy.deepcopy(model.state_dict())
 
             writer = writer_train if phase == "train" else writer_val
-            writer.add_scalar(phase+"_loss", epoch_loss, epoch)
+            writer.add_scalar("epoch_loss", epoch_loss, epoch)
+
+            # Show predicted image together with decoded predictions
+            class_colors = get_segmentation_colors(len(semantic_classes) + 1, class_indxs=semantic_classes)
+            semantic_target_rgb = get_rgb_segmentation(semantic_image=display_images[1],
+                                                       class_colors=class_colors)
+            semantic_pred_rgb = get_rgb_segmentation(semantic_image=display_images[2],
+                                                     class_colors=class_colors)
+            semantic_target_rgb = semantic_target_rgb / 255
+            display_images[1] = semantic_target_rgb
+            semantic_pred_rgb = semantic_pred_rgb / 255
+            display_images[2] = semantic_pred_rgb
+
+            display = True if phase == "val" and display_img_after_epoch else False
+
+            figtitle = "{} visualization after epoch {}".format(phase, epoch)
+            subtitles = ["augmented input", "ground truth", "prediction"]
+
+            img = display_images_horizontally(display_images, fig_width=10, fig_height=2, display=display,
+                                              title=figtitle, subplot_titles=subtitles)
+
+            writer.add_image("{} comparison".format(phase), img.transpose(2, 0, 1), epoch)
 
         now = time.time()
         time_elapsed = now - last_time
         print("Epoch completed in {:.0f}m {:.0f}s".format(
             time_elapsed // 60, time_elapsed % 60))
         last_time = now
-
-        # Show image from the validation set together with decoded predictions
-        class_colors = get_segmentation_colors(len(DEFAULT_CLASSES) + 1, class_indxs=DEFAULT_CLASSES)
-        semantic_target_rgb = get_rgb_segmentation(semantic_image=display_images[1],
-                                                 class_colors=class_colors)
-        semantic_pred_rgb = get_rgb_segmentation(semantic_image=display_images[2],
-                                                 class_colors=class_colors)
-        semantic_target_rgb = semantic_target_rgb / 255
-        display_images[1] = semantic_target_rgb
-        semantic_pred_rgb = semantic_pred_rgb / 255
-        display_images[2] = semantic_pred_rgb
-
-        if display_img_after_epoch:
-            display_images_horizontally(display_images, fig_width=6, fig_height=1)
-
-        writer_val.add_image("input", display_images[0].transpose(2, 0, 1), epoch)
-        writer_val.add_image("target", display_images[1].transpose(2, 0, 1), epoch)
-        writer_val.add_image("prediction", display_images[2].transpose(2, 0, 1), epoch)
 
         # Save the model
         if save_model_weights:
@@ -159,30 +165,36 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
 
 def main():
-    model_name = "deeplabv3-resnet50-test4"
+    random.seed(73)
+
+    model_name = "fcn-r101-pretrained"
     model_save_path = Path("training_logs/perception") / model_name
 
     validation_set_size = 0.2
-    max_n_instances = 50
-    batch_size = 12
+    max_n_instances = None
+    batch_size = 16
     semantic_classes = DEFAULT_CLASSES
     augment_strategy = "super_hard"
-    path = "data/perception/test_new"
+    path = "data/perception/test1"
 
     model_save_path.mkdir(parents=True)
-    dataloaders = create_dataloaders_with_multi_task_dataset(path=path, validation_set_size=validation_set_size,
+    dataloaders = create_dataloaders(path=path, validation_set_size=validation_set_size,
                                                              semantic_classes=semantic_classes,
                                                              batch_size=batch_size, max_n_instances=max_n_instances,
                                                              augment_strategy=augment_strategy)
 
     save_model_weights = True
     display_img_after_epoch = True
-    n_epochs = 30
+    n_epochs = 5
 
-    use_class_weights = True  # TODO
+    use_class_weights = False
+    # weight any class how you'd like here - we dont need to normalize these as long as reduction="mean" in criterion
+    weights = [1., 1., 1., 1., 1., 1., 1., 1., 1.]
+    backbone = "resnet101"
 
-    model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1)
-    criterion = torch.nn.CrossEntropyLoss()
+    #model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone=backbone, pretrained=True)
+    model = createFCN(outputchannels=len(DEFAULT_CLASSES) + 1, backbone=backbone, pretrained=True)
+    criterion = torch.nn.CrossEntropyLoss(weight=weights if use_class_weights else None)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     train_model(model=model, dataloaders=dataloaders, criterion=criterion, optimizer=optimizer,
