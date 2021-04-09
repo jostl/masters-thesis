@@ -16,19 +16,23 @@ def createDeepLabv3(outputchannels=1, backbone="resnet50", pretrained=True):
         print("DeepLabv3: Using resnet50 as backbone")
         model = models.segmentation.deeplabv3_resnet50(pretrained=pretrained,
                                                        progress=True)
+        model.classifier = DeepLabHead(2048, outputchannels)
+
     elif backbone == "mobilenet":
         print("DeepLabv3: Using mobilenet as backbone")
         # TODO må kanskje endre head også da
-        raise NotImplementedError
+
+        model = models.segmentation.deeplabv3_mobilenet_v3_large(pretrained=pretrained, progress=True)
+        model.classifier = DeepLabHead(960, outputchannels)
+
     else:
         print("DeepLabv3: Using resnet101 as backbone")
         model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained,
                                                         progress=True)
+        model.classifier = DeepLabHead(2048, outputchannels)
 
     model.aux_classifier = None
     #for param in model.parameters():
     #    param.requires_grad = False
-
-    model.classifier = DeepLabHead(2048, outputchannels)
 
     return model
