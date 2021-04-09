@@ -1,7 +1,7 @@
 from .goal_suite import PointGoalSuite
 
 
-VERSION = '096'
+VERSION = '0911'
 
 WEATHER_1 = [1, 3, 6, 8]
 WEATHER_2 = [4, 14]
@@ -27,6 +27,8 @@ def _add(suite_name, *args, **kwargs):
         benchmark = 'carla100'
     elif 'DataCollection' in suite_name:
         benchmark = 'data_collection'
+    elif 'Debug' in suite_name:
+        benchmark = 'debug'
     else:
         benchmark = 'corl2017'
 
@@ -40,6 +42,8 @@ def _add(suite_name, *args, **kwargs):
         suite = 'full'
     elif 'NoCrash' in suite_name:
         suite = 'nocrash'
+    elif "Debug" in suite_name:
+        suite = 'debug'
     else:
         raise Exception('No suite specified: %s.' % suite_name)
 
@@ -155,6 +159,10 @@ _add('FullTown02-noweather', n_vehicles=15, weathers=[1])
 
 # Data collection
 _add("DataCollectionTown01")
+
+# Debug suites, used for validating routes in the simulator
+_add("DebugTown01", weathers=[1])
+_add("DebugTown02", weathers=[2])
 
 _aliases = {
         'town1': [
