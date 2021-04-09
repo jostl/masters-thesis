@@ -55,7 +55,7 @@ def _agent_factory_hack(model_path, config, autopilot):
     return lambda: agent_class(**agent_args)
 
 
-def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, show=False):
+def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, show=False, move_camera=False):
     log_dir = model_path.parent
     config = bzu.load_json(str(log_dir / 'config.json'))
 
@@ -70,7 +70,8 @@ def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, s
         with make_suite(suite_name, port=port, big_cam=big_cam) as env:
             agent_maker = _agent_factory_hack(model_path, config, autopilot)
 
-            run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_run=max_run, show=show)
+            run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_run=max_run, show=show,
+                          move_camera=move_camera)
 
         elapsed = time.time() - tick
         total_time += elapsed
@@ -91,7 +92,8 @@ if __name__ == '__main__':
     parser.add_argument('--show', action='store_true', default=False)
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--max-run', type=int, default=3)
-
+    parser.add_argument('--move-camera', action="store_true")
     args = parser.parse_args()
 
-    run(Path(args.model_path), args.port, args.suite, args.big_cam, args.seed, args.autopilot, args.resume, max_run=args.max_run, show=args.show)
+    run(Path(args.model_path), args.port, args.suite, args.big_cam, args.seed, args.autopilot, args.resume,
+        max_run=args.max_run, show=args.show, move_camera=args.move_camera)
