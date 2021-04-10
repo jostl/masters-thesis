@@ -112,27 +112,27 @@ def rollout(replay_buffer, image_agent, max_rollout_length=4000,
         replay_buffer.add_data(**datum)
 
 
-def update(replay_buffer, image_agent, optimizer, config, episode, critic_criterion, gamma=0.99, eps_clip=0.05):
-    rewards = []
-    discounted_reward = 0
+def update(replay_buffer, image_agent, optimizer, config, episode, critic_criterion, gamma=0.99, lmbda=0.5,
+           eps_clip=0.05):
 
-    for reward, is_terminal in zip(reversed(replay_buffer.get_rewards()), reversed(replay_buffer.get_is_terminals())):
-        if is_terminal:
-            discounted_reward = 0
-        discounted_reward = reward + (gamma * discounted_reward)
-        rewards.insert(0, discounted_reward)
+    rewards = replay_buffer.get_rewards()
+    terminals = replay_buffer.get_is_terminals()
+    values = None  # TODO: Hvordan hente values?
+
+    advantages = torch.tensor(gae(rewards, terminals, values, gamma=gamma, lmbda=lmbda), dtype=torch.float32).to(
+        config["device"])
+    rewards_to_go = torch.tensor(rtgs(rewards), dtype=torch.float32).to(config["device"])
+
     loader = torch.utils.data.DataLoader(replay_buffer, batch_size=10, num_workers=0, pin_memory=False,
                                          shuffle=False, drop_last=True)
-    rewards = torch.tensor(rewards, dtype=torch.float32).to(config["device"])
     for epoch in range(config['epoch_per_episode']):
         for i, (idxes, old_states, old_actions, old_logprobs, _, _) in tqdm(enumerate(loader)):
             logprobs, state_values, dist_entropy = image_agent.evaluate(old_states, old_actions)
 
             ratios = torch.exp(logprobs - old_logprobs)
-            advantages = rewards[idxes] - state_values
-            surr1 = ratios * advantages
+            surr1 = ratios * advantages[idxes]
             surr2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages
-            loss = -torch.min(surr1, surr2) + 0.5 * critic_criterion(state_values, rewards[idxes]) - 0.01 * dist_entropy
+            loss = -torch.min(surr1, surr2) + 0.5 * critic_criterion(state_values, rewards_to_go[idxes]) - 0.01 * dist_entropy
 
             # take gradient step
             optimizer.zero_grad()
@@ -146,6 +146,31 @@ def update(replay_buffer, image_agent, optimizer, config, episode, critic_criter
                    str(Path(config['log_dir']) / ('model-%d.th' % episode)))
 
 
+def gae(rewards, terminals, values, gamma, lmbda):
+    # Calculates generalized advantage estimation (GAE).
+    # Code based on https://nn.labml.ai/rl/ppo/gae.html
+    n_advantages = len(rewards)
+    advantages = np.zeros(n_advantages)
+    last_advantage = 0
+    last_value = values[-1]
+    for t in reversed(range(n_advantages)):
+        mask = 1 - terminals[t]
+        last_value = last_value * mask
+        last_advantage = last_advantage * mask
+        delta = rewards[t] + gamma * last_value - values[t]
+        last_advantage = delta + gamma * lmbda * last_advantage
+        advantages[t] = last_advantage
+        last_value = values[t]
+    return advantages
+
+def rtgs(rewards):
+    # Calculates rewards-to-gos
+    n = len(rewards)
+    rewards_to_go = np.zeros_like(rewards)
+    for i in reversed(range(n)):
+        rewards_to_go[i] = rewards[i] + (rewards_to_go[i+1] if i+1 < n else 0)
+    return rewards_to_go
+
 def train(config):
     import utils.bz_utils as bzu
 
@@ -158,7 +183,6 @@ def train(config):
                                   imagenet_pretrained=False)
     actor_net_old = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
                                       imagenet_pretrained=False)
-
 
     critic_net = CriticNetwork(backbone=config["model_args"]["backbone"],
                                device=config["device"]).to(config["device"])
