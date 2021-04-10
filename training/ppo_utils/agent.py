@@ -26,14 +26,13 @@ DT = 0.1
 
 
 class PPOImageAgent(Agent):
-    def __init__(self, replay_buffer, policy_old, critic, steer_points=None, pid=None, gap=5,
+    def __init__(self, replay_buffer, policy_old, steer_points=None, pid=None, gap=5,
                  camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, actor_std=0.01,
                  **kwargs):
         super().__init__(**kwargs)
 
         # self.model is the current policy being updated
         self.policy_old = policy_old
-        self.critic = critic
 
         self.fixed_offset = float(camera_args['fixed_offset'])
         print("Offset: ", self.fixed_offset)
@@ -168,17 +167,14 @@ class PPOImageAgent(Agent):
         return world_output
 
     def evaluate(self, state, action):
+        # TODO: Den skal ikke ta inn state, men rgb, command og speed (og action såklart).
         rgb = state["rgb_img"].to(self.device)
         command = one_hot(state["command"]).to(self.device)
-        speed = state["velocity"].to(self.device)
+        speed = state["speed"].to(self.device)
         if self.model.all_branch:
             action_mean, _ = self.model(rgb, speed, command)
         else:
             action_mean = self.model(rgb, speed, command)
-        if self.critic.all_branch:
-            state_value, _ = self.critic(rgb, speed, command)
-        else:
-            state_value = self.critic(rgb, speed, command)
         batch_size, n_waypoints, _ = action_mean.shape
         action_mean_view = action_mean.squeeze().view((batch_size, n_waypoints * 2))
 
@@ -189,4 +185,4 @@ class PPOImageAgent(Agent):
         action_logprob = dist.log_prob(action.squeeze().view(batch_size, n_waypoints * 2))
         dist_entropy = dist.entropy()
 
-        return action_logprob, state_value.squeeze(), dist_entropy
+        return action_logprob, dist_entropy

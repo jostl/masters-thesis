@@ -29,9 +29,10 @@ from bird_view.utils import carla_utils as cu
 from benchmark import make_suite
 from tqdm import tqdm
 from training.ppo_utils.agent import PPOImageAgent
-from training.ppo_utils.critic import CriticNetwork
+from training.ppo_utils.critic import BirdViewCritic
 
-BACKBONE = 'resnet34'
+ACTOR_BACKBONE = 'resnet34'
+CRITIC_BACKBONE = 'resnet18'
 GAP = 5
 N_STEP = 5
 CROP_SIZE = 192
@@ -50,8 +51,8 @@ def crop_birdview(birdview, dx=0, dy=0):
     return birdview
 
 
-def rollout(replay_buffer, image_agent, max_rollout_length=4000,
-            n_vehicles=0, n_pedestrians=400, port=2000, planner="new"):
+def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
+            n_vehicles=0, n_pedestrians=10, port=2000, planner="new"):
     progress = tqdm(range(max_rollout_length), desc='Frame')
     weather = np.random.choice(list(cu.TRAIN_WEATHERS.keys()))
     data = []
@@ -76,8 +77,15 @@ def rollout(replay_buffer, image_agent, max_rollout_length=4000,
 
             env.apply_control(control)
             env.tick()
-            reward = env.get_reward()
 
+            rgb_img = state["rgb"].copy()
+            command = int(state["command"])
+            speed = np.linalg.norm(state["velocity"])
+
+            birdview_img = crop_birdview(state["birdview"], dx=-10)
+            state_value = critic(*critic.prepare_for_eval(birdview_img, speed, command))
+
+            reward = env.get_reward()
             is_terminal = env.collided or env.is_failure() or env.is_success()
 
             if i % 50 == 0:
@@ -85,9 +93,11 @@ def rollout(replay_buffer, image_agent, max_rollout_length=4000,
 
             data.append({
                 'state': {
-                    'rgb_img': state["rgb"].copy(),
-                    'command': int(state["command"]),
-                    'velocity': np.linalg.norm(state["velocity"])},
+                    'rgb_img': rgb_img,
+                    'command': command,
+                    'speed': speed,
+                    'state_value': state_value
+                },
                 'action': action,
                 'action_logprobs': action_logprobs,
                 'reward': reward,
@@ -112,27 +122,27 @@ def rollout(replay_buffer, image_agent, max_rollout_length=4000,
         replay_buffer.add_data(**datum)
 
 
-def update(replay_buffer, image_agent, optimizer, config, episode, critic_criterion, gamma=0.99, lmbda=0.5,
+def update(replay_buffer, image_agent, optimizer, device, episode, critic, critic_criterion, epoch_per_episode=5,
+           gamma=0.99, lmbda=0.5,
            eps_clip=0.05):
-
+    def to_tensor(x):
+        return torch.tensor(x, dtype=torch.float32).to(device)
     rewards = replay_buffer.get_rewards()
     terminals = replay_buffer.get_is_terminals()
-    values = None  # TODO: Hvordan hente values?
-
-    advantages = torch.tensor(gae(rewards, terminals, values, gamma=gamma, lmbda=lmbda), dtype=torch.float32).to(
-        config["device"])
-    rewards_to_go = torch.tensor(rtgs(rewards), dtype=torch.float32).to(config["device"])
+    state_values = to_tensor(replay_buffer.get_state_values())
+    advantages = to_tensor(gae(rewards, terminals, state_values, gamma=gamma, lmbda=lmbda))
+    rewards_to_go = to_tensor(rtgs(rewards))
 
     loader = torch.utils.data.DataLoader(replay_buffer, batch_size=10, num_workers=0, pin_memory=False,
-                                         shuffle=False, drop_last=True)
-    for epoch in range(config['epoch_per_episode']):
+                                         shuffle=True, drop_last=True)
+    for epoch in range(epoch_per_episode):
         for i, (idxes, old_states, old_actions, old_logprobs, _, _) in tqdm(enumerate(loader)):
-            logprobs, state_values, dist_entropy = image_agent.evaluate(old_states, old_actions)
-
+            logprobs, dist_entropy = image_agent.evaluate(old_states, old_actions)
             ratios = torch.exp(logprobs - old_logprobs)
             surr1 = ratios * advantages[idxes]
-            surr2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages
-            loss = -torch.min(surr1, surr2) + 0.5 * critic_criterion(state_values, rewards_to_go[idxes]) - 0.01 * dist_entropy
+            surr2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages[idxes]
+            loss = -torch.min(surr1, surr2) + 0.5 * critic_criterion(state_values[idxes],
+                                                                     rewards_to_go[idxes]) - 0.01 * dist_entropy
 
             # take gradient step
             optimizer.zero_grad()
@@ -163,13 +173,15 @@ def gae(rewards, terminals, values, gamma, lmbda):
         last_value = values[t]
     return advantages
 
+
 def rtgs(rewards):
     # Calculates rewards-to-gos
     n = len(rewards)
     rewards_to_go = np.zeros_like(rewards)
     for i in reversed(range(n)):
-        rewards_to_go[i] = rewards[i] + (rewards_to_go[i+1] if i+1 < n else 0)
+        rewards_to_go[i] = rewards[i] + (rewards_to_go[i + 1] if i + 1 < n else 0)
     return rewards_to_go
+
 
 def train(config):
     import utils.bz_utils as bzu
@@ -178,28 +190,32 @@ def train(config):
     bzu.log.save_config(config)
 
     replay_buffer = PPOReplayBuffer(**config["buffer_args"])
+    device = config["device"]
 
-    actor_net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
+    actor_net = setup_image_model(**config["actor"], device=device, all_branch=True,
                                   imagenet_pretrained=False)
-    actor_net_old = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
+    actor_net_old = setup_image_model(**config["actor"], device=device, all_branch=True,
                                       imagenet_pretrained=False)
-
-    critic_net = CriticNetwork(backbone=config["model_args"]["backbone"],
-                               device=config["device"]).to(config["device"])
-
     image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
-    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, critic=critic_net,
+    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old,
                                 **image_agent_kwargs)
 
-    optimizer = torch.optim.Adam(actor_net.parameters(), lr=1e-4)
+    # TODO: Enable loading av pretrained ckpt
+    critic_net = BirdViewCritic(backbone=config["critic"]["backbone"],
+                                device=device, all_branch=False).to(config["device"])
+
+    optimizer = torch.optim.Adam([{'params': actor_net.parameters(), 'lr': config["actor"]["lr"]},
+                                  {'params': critic_net.parameters(), 'lr': config["critic"]["lr"]}])
     critic_criterion = nn.MSELoss()
+
     for episode in range(config['max_episode']):
         for i in range(config["rollouts_per_ep"]):
             print("Episode ", episode + 1, ", Rollout ", i + 1)
-            rollout(replay_buffer, image_agent, max_rollout_length=config['max_rollout_length'],
-                    port=config['port'])
+            rollout(replay_buffer, image_agent, critic_net, max_rollout_length=config['max_rollout_length'],
+                    port=config['port'], device=device)
         # import pdb; pdb.set_trace()
-        update(replay_buffer, image_agent, optimizer, config, episode, critic_criterion)
+        update(replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
+               epoch_per_episode=config["epoch_per_episode"])
         replay_buffer.clear_buffer()
 
 
@@ -214,9 +230,13 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--speed_noise', type=float, default=0.0)
 
+    # ACTOR
     parser.add_argument('--actor-ckpt', required=True)
     parser.add_argument('--perception-ckpt', default="")
     parser.add_argument('--n_semantic_classes', type=int, default=6)
+
+    # CRITIC
+    parser.add_argument('--critic-ckpt')
 
     parser.add_argument('--fixed_offset', type=float, default=4.0)
 
@@ -244,12 +264,18 @@ if __name__ == '__main__':
         'buffer_args': {
             'buffer_limit': 200000,
         },
-        'model_args': {
+        'actor': {
             'model': 'image_ss',
-            'backbone': BACKBONE,
-            'image_ckpt': parsed.actor_ckpt,
+            'backbone': ACTOR_BACKBONE,
+            'actor_ckpt': parsed.actor_ckpt,
+            'lr': parsed.actor_lr,
             'perception_ckpt': parsed.perception_ckpt,
             'n_semantic_classes': parsed.n_semantic_classes
+        },
+        'critic': {
+            'backbone': CRITIC_BACKBONE,
+            'critic_ckpt': parsed.critic_ckpt,
+            'lr': parsed.critic_lr
         },
         'agent_args': {
             'camera_args': {
