@@ -36,7 +36,7 @@ def get_rgb_segmentation(semantic_image: np.ndarray, class_colors):
     return semantic_image_rgb
 
 
-def display_images_horizontally(images, fig_width, fig_height):
+def display_images_horizontally(images, fig_width, fig_height, display=True, title=None, subplot_titles=None):
     # Inspired from Hands-On Machine Learning with SciKit-learn, Keras and TensorFlow, page 574
     # Displays the list of images horizontally.
 
@@ -47,15 +47,43 @@ def display_images_horizontally(images, fig_width, fig_height):
         # plt.show()
 
     n_images = len(images)
+
+    if subplot_titles is not None:
+        assert len(subplot_titles) == n_images, "need a subtitle for every image"
+
     if n_images > 0:
         fig = plt.figure(figsize=(fig_width, fig_height))
         for image_index in range(n_images):
             image = images[image_index]
-            plt.subplot(1, n_images, 1 + image_index)
+            ax = plt.subplot(1, n_images, 1 + image_index)
+
+            if subplot_titles is not None:
+                ax.set_title(subplot_titles[image_index])
+
             cmap = "binary" if len(images[image_index].shape) == 3 else "gray"
             plot_image(image, cmap=cmap)
-        fig.show()
 
+        if title is not None:
+            fig.suptitle(title, fontsize="x-large")
+
+        if display:
+            fig.show()
+
+        array = get_np_array_from_figure(fig)
+
+        plt.close()
+
+        return array
+
+
+def get_np_array_from_figure(fig):
+    """Returns numpy rgb array from matplotlib figure"""
+    fig.canvas.draw()
+
+    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    return data
 
 def display_originals_with_decoded(original_images, decoded_images, title=""):
     # Inspired by Hands-On Machine Learning with SciKit-learn, Keras and TensorFlow, page 574.
