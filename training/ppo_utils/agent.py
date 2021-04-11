@@ -157,36 +157,53 @@ class PPOImageAgent(Agent):
         return world_output
 
     def evaluate(self, rgb, speed, command, action):
+        # Calculate mean actions
         if self.model.all_branch:
             action_mean, _ = self.model(rgb, speed, command)
         else:
             action_mean = self.model(rgb, speed, command)
+        # Shape: (batch_size, n_waypoints, 2)
         batch_size, n_waypoints, _ = action_mean.shape
+
+        # Reshape action_mean to shape (batch_size, 10)
         action_mean_view = action_mean.squeeze().view((batch_size, n_waypoints * 2))
 
+        # Make a 2-D tensor of shape (batch_size, 10), where each vector is 'self.action_var'
         action_var = self.action_var.expand_as(action_mean_view)
+
+        # Makes a 3-D tensor with shape (batch_size, 10, 10)
+        # Each 10 x 10 matrix is a covariance matrix with entries only along the diagonal
         cov_mat = torch.diag_embed(action_var).to(self.device)
 
+        # Create a multivariate normal distribution
         dist = MultivariateNormal(action_mean_view, cov_mat)
+
+        # Get the log of the probability density function evaluated at each 'action' in this batch
         action_logprob = dist.log_prob(action.squeeze().view(batch_size, n_waypoints * 2))
+
+        # Get the entropy of the distribution
         dist_entropy = dist.entropy()
 
         return action_logprob, dist_entropy
 
     def sample_action(self, model_pred):
-        action_mean = model_pred # mu (mean value)
+        action_mean = model_pred  # mu (mean value)
         original_shape = action_mean.shape
 
+        # Reshape action_mean to (1, 10)
         action_mean_view = action_mean.squeeze().view((10,))
-        cov_mat = torch.diag(self.action_var).to(self.device)
 
+        # Make a covariance matrix filled the vector 'self.action_var' along the diagonal
+        cov_mat = torch.diag(self.action_var).to(self.device)
+        # Make a multivariate normal-dist with 'action_mean' as vector of means, and 'cov_mat' as covariance matrix
         dist = MultivariateNormal(action_mean_view, cov_mat)
+
         # Sample an action
         action = dist.sample()
 
         # Get the log of the probability density function evaluated at 'action'
         action_logprob = dist.log_prob(action)
 
-        # Reshape the action into original shape.
+        # Reshape the action into original shape
         action = action.view(original_shape)
         return action, action_logprob

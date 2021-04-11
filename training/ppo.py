@@ -160,14 +160,14 @@ def update(replay_buffer, image_agent, optimizer, device, episode, critic, criti
             speed = old_states["speed"].to(device).float()
             command = one_hot(old_states["command"]).to(device).float()
 
-            # Evaluate the action on the new policy and retrieve entropy of the multivariate normal distribution
+            # Calculate log probability of old actions on the new policy and retrieve entropy of distribution
             logprobs, dist_entropy = image_agent.evaluate(rgb, speed, command, old_actions)
-
-            # Evaluate the states with the critic
-            state_values = critic(birdview_img, speed, command)
 
             # Calculate ratio between new and old policy
             ratios = torch.exp(logprobs - old_logprobs)
+
+            # Evaluate state values with the critic
+            state_values = critic(birdview_img, speed, command)
 
             # PPO objective function
             surr1 = ratios * advantages[idxes]
@@ -218,7 +218,7 @@ def rtgs(rewards, terminals, normalize=False):
         # Only add rewards-to-go if 'i + 1' exist and 'i' is not a terminal state
         rewards_to_go[i] = rewards[i] + (rewards_to_go[i + 1] if i + 1 < n and not terminals[i] else 0)
     if normalize:
-        rewards_to_go = (rewards_to_go - np.mean(rewards_to_go))/(np.std(rewards_to_go) + 1e-7)
+        rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go) + 1e-7)
     return rewards_to_go
 
 
@@ -236,7 +236,7 @@ def train(config):
     actor_net_old = setup_image_model(**config["actor"], device=device, all_branch=True,
                                       imagenet_pretrained=False)
     image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
-    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, actor_std=0.000001,
+    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, actor_std=0.001,
                                 **image_agent_kwargs)
 
     # TODO: Enable loading av pretrained ckpt
@@ -306,7 +306,7 @@ if __name__ == '__main__':
         'actor': {
             'model': 'image_ss',
             'backbone': ACTOR_BACKBONE,
-            'actor_ckpt': parsed.actor_ckpt,
+            'image_ckpt': parsed.actor_ckpt,
             'lr': parsed.actor_lr,
             'perception_ckpt': parsed.perception_ckpt,
             'n_semantic_classes': parsed.n_semantic_classes
