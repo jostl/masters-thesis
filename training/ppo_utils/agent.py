@@ -27,7 +27,8 @@ DT = 0.1
 
 class PPOImageAgent(Agent):
     def __init__(self, replay_buffer, policy_old, steer_points=None, pid=None, gap=5,
-                 camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, actor_std=0.01,
+                 camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, action_std=0.01,
+                 min_action_std=0.001, action_std_decay_rate = 0.0001,
                  **kwargs):
         super().__init__(**kwargs)
 
@@ -61,7 +62,10 @@ class PPOImageAgent(Agent):
 
         self.last_brake = -1
 
-        self.action_var = torch.full((10,), actor_std * actor_std)
+        self.action_var = torch.full((10,), action_std * action_std)
+        self.action_std = action_std
+        self.min_action_std = min_action_std
+        self.action_std_decay_rate = action_std_decay_rate
 
     def run_step(self, observations):
         rgb = observations['rgb'].copy()
@@ -207,3 +211,7 @@ class PPOImageAgent(Agent):
         # Reshape the action into original shape
         action = action.view(original_shape)
         return action, action_logprob
+
+    def decay_action_std(self):
+        self.action_std = max(self.action_std - self.action_std_decay_rate, self.min_action_std)
+        self.action_std = round(self.action_std, 4)

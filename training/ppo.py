@@ -230,13 +230,17 @@ def train(config):
 
     replay_buffer = PPOReplayBuffer(**config["buffer_args"])
     device = config["device"]
+    action_std = 0.01
+    min_action_std = 0.0001
+    action_std_decay_rate = 0.001
 
     actor_net = setup_image_model(**config["actor"], device=device, all_branch=True,
                                   imagenet_pretrained=False)
     actor_net_old = setup_image_model(**config["actor"], device=device, all_branch=True,
                                       imagenet_pretrained=False)
     image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
-    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, actor_std=0.001,
+    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, action_std=action_std,
+                                min_action_std=min_action_std,
                                 **image_agent_kwargs)
 
     # TODO: Enable loading av pretrained ckpt
@@ -255,6 +259,8 @@ def train(config):
         # import pdb; pdb.set_trace()
         update(replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
                epoch_per_episode=config["epoch_per_episode"])
+
+        image_agent.decay_action_std(actor_std_decay_rate)
         replay_buffer.clear_buffer()
 
 
