@@ -51,6 +51,16 @@ def crop_birdview(birdview, dx=0, dy=0):
     return birdview
 
 
+def one_hot(x, num_digits=4, start=1):
+    N = x.size()[0]
+    x = x.long()[:, None] - start
+    x = torch.clamp(x, 0, num_digits - 1)
+    y = torch.FloatTensor(N, num_digits)
+    y.zero_()
+    y.scatter_(1, x, 1)
+    return y
+
+
 def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
             n_vehicles=0, n_pedestrians=10, port=2000, planner="new"):
     progress = tqdm(range(max_rollout_length), desc='Frame')
@@ -83,7 +93,7 @@ def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
             speed = np.linalg.norm(state["velocity"])
 
             birdview_img = crop_birdview(state["birdview"], dx=-10)
-            state_value = critic(*critic.prepare_for_eval(birdview_img, speed, command))
+            state_value = critic.evaluate(*critic.prepare_data(birdview_img, speed, command))
 
             reward = env.get_reward()
             is_terminal = env.collided or env.is_failure() or env.is_success()
@@ -96,6 +106,7 @@ def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
                     'rgb_img': rgb_img,
                     'command': command,
                     'speed': speed,
+                    'birdview_img': birdview_img,
                     'state_value': state_value
                 },
                 'action': action,
@@ -127,28 +138,49 @@ def update(replay_buffer, image_agent, optimizer, device, episode, critic, criti
            eps_clip=0.05):
     def to_tensor(x):
         return torch.tensor(x, dtype=torch.float32).to(device)
+
+    # Retrieve rewards, terminal states and state values from the rollout(s)
     rewards = replay_buffer.get_rewards()
     terminals = replay_buffer.get_is_terminals()
-    state_values = to_tensor(replay_buffer.get_state_values())
-    advantages = to_tensor(gae(rewards, terminals, state_values, gamma=gamma, lmbda=lmbda))
-    rewards_to_go = to_tensor(rtgs(rewards))
+    values = to_tensor(replay_buffer.get_state_values())
+
+    # Calculate advantages using generalized advantage estimation (GAE)
+    advantages = to_tensor(gae(rewards, terminals, values, gamma=gamma, lmbda=lmbda, normalize=True))
+
+    # Calculate rewards-to-go, used later for calculating loss for the critic
+    rewards_to_go = to_tensor(rtgs(rewards, terminals, normalize=True))
 
     loader = torch.utils.data.DataLoader(replay_buffer, batch_size=10, num_workers=0, pin_memory=False,
                                          shuffle=True, drop_last=True)
     for epoch in range(epoch_per_episode):
         for i, (idxes, old_states, old_actions, old_logprobs, _, _) in tqdm(enumerate(loader)):
-            logprobs, dist_entropy = image_agent.evaluate(old_states, old_actions)
+            # Unpack old_states into RGB, birdview, speed and command.
+            rgb = old_states["rgb_img"].to(device).float()
+            birdview_img = old_states["birdview_img"].to(device).float()
+            speed = old_states["speed"].to(device).float()
+            command = one_hot(old_states["command"]).to(device).float()
+
+            # Evaluate the action on the new policy and retrieve entropy of the multivariate normal distribution
+            logprobs, dist_entropy = image_agent.evaluate(rgb, speed, command, old_actions)
+
+            # Evaluate the states with the critic
+            state_values = critic(birdview_img, speed, command)
+
+            # Calculate ratio between new and old policy
             ratios = torch.exp(logprobs - old_logprobs)
+
+            # PPO objective function
             surr1 = ratios * advantages[idxes]
             surr2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages[idxes]
-            loss = -torch.min(surr1, surr2) + 0.5 * critic_criterion(state_values[idxes],
-                                                                     rewards_to_go[idxes]) - 0.01 * dist_entropy
+            loss = -torch.min(surr1, surr2) + \
+                   0.5 * critic_criterion(state_values, rewards_to_go[idxes]) - 0.01 * dist_entropy
 
-            # take gradient step
+            # Take gradient step
             optimizer.zero_grad()
             loss.mean().backward()
             optimizer.step()
 
+    # Set the new policy as the old policy
     image_agent.policy_old.load_state_dict(image_agent.model.state_dict())
 
     if episode in SAVE_EPISODES:
@@ -156,7 +188,7 @@ def update(replay_buffer, image_agent, optimizer, device, episode, critic, criti
                    str(Path(config['log_dir']) / ('model-%d.th' % episode)))
 
 
-def gae(rewards, terminals, values, gamma, lmbda):
+def gae(rewards, terminals, values, gamma, lmbda, normalize=False):
     # Calculates generalized advantage estimation (GAE).
     # Code based on https://nn.labml.ai/rl/ppo/gae.html
     n_advantages = len(rewards)
@@ -171,15 +203,22 @@ def gae(rewards, terminals, values, gamma, lmbda):
         last_advantage = delta + gamma * lmbda * last_advantage
         advantages[t] = last_advantage
         last_value = values[t]
+    if normalize:
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-7)
     return advantages
 
 
-def rtgs(rewards):
-    # Calculates rewards-to-gos
+def rtgs(rewards, terminals, normalize=False):
+    # Calculates rewards-to-go
+    # Code based on https://github.com/openai/spinningup/blob/master/spinup/examples/pytorch/pg_math/2_rtg_pg.py
     n = len(rewards)
     rewards_to_go = np.zeros_like(rewards)
     for i in reversed(range(n)):
-        rewards_to_go[i] = rewards[i] + (rewards_to_go[i + 1] if i + 1 < n else 0)
+        # Logic: 'i' is an index for a state.
+        # Only add rewards-to-go if 'i + 1' exist and 'i' is not a terminal state
+        rewards_to_go[i] = rewards[i] + (rewards_to_go[i + 1] if i + 1 < n and not terminals[i] else 0)
+    if normalize:
+        rewards_to_go = (rewards_to_go - np.mean(rewards_to_go))/(np.std(rewards_to_go) + 1e-7)
     return rewards_to_go
 
 
@@ -197,7 +236,7 @@ def train(config):
     actor_net_old = setup_image_model(**config["actor"], device=device, all_branch=True,
                                       imagenet_pretrained=False)
     image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
-    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old,
+    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, actor_std=0.000001,
                                 **image_agent_kwargs)
 
     # TODO: Enable loading av pretrained ckpt

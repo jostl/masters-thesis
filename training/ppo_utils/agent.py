@@ -78,17 +78,7 @@ class PPOImageAgent(Agent):
             else:
                 model_pred = self.policy_old(_rgb, _speed, _command)
 
-        action_mean = model_pred
-        original_shape = action_mean.shape
-
-        action_mean_view = action_mean.squeeze().view((10,))
-        cov_mat = torch.diag(self.action_var).to(self.device)
-
-        dist = MultivariateNormal(action_mean_view, cov_mat)
-        action = dist.sample()
-        action_logprob = dist.log_prob(action)
-        action = action.view(original_shape)
-
+        action, action_logprob = self.sample_action(model_pred)
         model_pred = action.squeeze().detach().cpu().numpy()
 
         # Project back to world coordinate
@@ -166,11 +156,7 @@ class PPOImageAgent(Agent):
 
         return world_output
 
-    def evaluate(self, state, action):
-        # TODO: Den skal ikke ta inn state, men rgb, command og speed (og action såklart).
-        rgb = state["rgb_img"].to(self.device)
-        command = one_hot(state["command"]).to(self.device)
-        speed = state["speed"].to(self.device)
+    def evaluate(self, rgb, speed, command, action):
         if self.model.all_branch:
             action_mean, _ = self.model(rgb, speed, command)
         else:
@@ -186,3 +172,21 @@ class PPOImageAgent(Agent):
         dist_entropy = dist.entropy()
 
         return action_logprob, dist_entropy
+
+    def sample_action(self, model_pred):
+        action_mean = model_pred # mu (mean value)
+        original_shape = action_mean.shape
+
+        action_mean_view = action_mean.squeeze().view((10,))
+        cov_mat = torch.diag(self.action_var).to(self.device)
+
+        dist = MultivariateNormal(action_mean_view, cov_mat)
+        # Sample an action
+        action = dist.sample()
+
+        # Get the log of the probability density function evaluated at 'action'
+        action_logprob = dist.log_prob(action)
+
+        # Reshape the action into original shape.
+        action = action.view(original_shape)
+        return action, action_logprob

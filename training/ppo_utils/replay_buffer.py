@@ -12,15 +12,17 @@ class PPOReplayBuffer(torch.utils.data.Dataset):
         self._state_values = []
 
         self.rgb_transform = transforms.ToTensor()
-
-        self.normalized = False
+        self.birdview_transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
 
     def __len__(self):
         return len(self._data)
 
     def __getitem__(self, _idx):
         state, action, action_logprobs, reward, is_terminal = self._data[_idx]
-        state["rgb_img"] = self.rgb_transform(state["rgb_img"])
+        state['rgb_img'] = self.rgb_transform(state['rgb_img'])
+        state['birdview_img'] = self.birdview_transform(state['birdview_img'])
         return _idx, state, action, action_logprobs, reward, is_terminal
 
     def clear_buffer(self):
@@ -30,7 +32,6 @@ class PPOReplayBuffer(torch.utils.data.Dataset):
         self._state_values = []
 
     def add_data(self, state, action, action_logprobs, reward, is_terminal):
-        self.normalized = False
         self._data.append((state, action, action_logprobs, reward, is_terminal))
         self._rewards.append(reward)
         self._is_terminals.append(is_terminal)

@@ -56,13 +56,14 @@ class BirdViewCritic(common.ResnetBase):
         return value_pred
 
     def evaluate(self, birdview, speed, command):
-        if self.critic.all_branch:
-            state_value, _ = self.critic(birdview, speed, command)
-        else:
-            state_value = self.critic(birdview, speed, command)
+        with torch.no_grad():
+            if self.all_branch:
+                state_value, _ = self.forward(birdview, speed, command)
+            else:
+                state_value = self.forward(birdview, speed, command)
         return state_value.squeeze()
 
-    def prepare_for_eval(self, birdview, speed, command):
+    def prepare_data(self, birdview, speed, command):
         _birdview = self.transform(birdview).to(self.device).unsqueeze(0)
         _speed = torch.FloatTensor([speed]).to(self.device)
         _command = self.one_hot[int(command) - 1].to(self.device).unsqueeze(0)
