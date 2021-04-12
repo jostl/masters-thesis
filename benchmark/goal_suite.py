@@ -208,17 +208,19 @@ class PointGoalSuite(BaseSuite):
 
         return np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(h, w, 3)
 
-    def get_reward(self):
-        # TODO: Implementer rewards
-        reward = 0
-        if self.collided:
-            collided_type = "".join(self.collided_with_actor.type_id.split("."))
-            if "static" in collided_type or "traffic" in collided_type:
-                reward = -20
-            elif "vehicle" in collided_type:
-                reward = -50
-            elif "walker" in collided_type:
-                reward = -100
-        else:
-            reward = 1
-        return reward
+    def get_reward(self, speed, alpha, beta, phi, delta):
+        def infraction_penalty():
+            if self.collided or self.traffic_tracker.ran_light:
+                return -phi * speed - delta
+            return 0
+
+        def distance_penalty():
+            next_waypoint_location = self._next # Get the location of the next waypoint
+            player_location = self._player.get_location()
+            distance = player_location.distance(next_waypoint_location) # Get distance between actor and next waypoint
+            return -beta * distance
+
+        def speed_reward():
+            return alpha * speed
+
+        return speed_reward() + distance_penalty() + infraction_penalty()

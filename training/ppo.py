@@ -1,12 +1,6 @@
-import argparse
 import glob
 import os
 import sys
-from pathlib import Path
-
-import numpy as np
-import torch
-import torch.nn as nn
 
 try:
     sys.path.append(glob.glob('PythonAPI/carla/dist/carla-*%d.%d-%s.egg' % (
@@ -16,20 +10,28 @@ try:
 except IndexError:
     print("could not find the CARLA egg")
     pass
-
 try:
     sys.path.append(glob.glob('../PythonAPI')[0])
     sys.path.append(glob.glob('../bird_view')[0])
     sys.path.append(glob.glob('../')[0])
 except IndexError as e:
     pass
-from training.ppo_utils.replay_buffer import PPOReplayBuffer
-from training.phase2_utils import setup_image_model
-from bird_view.utils import carla_utils as cu
-from benchmark import make_suite
+import argparse
+
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
 from tqdm import tqdm
+import random
+
+from benchmark import make_suite
+from bird_view.utils import carla_utils as cu
+from training.phase2_utils import setup_image_model
 from training.ppo_utils.agent import PPOImageAgent
 from training.ppo_utils.critic import BirdViewCritic
+from training.ppo_utils.replay_buffer import PPOReplayBuffer
 
 ACTOR_BACKBONE = 'resnet34'
 CRITIC_BACKBONE = 'resnet18'
@@ -61,8 +63,7 @@ def one_hot(x, num_digits=4, start=1):
     return y
 
 
-def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
-            n_vehicles=0, n_pedestrians=10, port=2000, planner="new"):
+def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=2000, planner="new", **kwargs):
     progress = tqdm(range(max_rollout_length), desc='Frame')
     weather = np.random.choice(list(cu.TRAIN_WEATHERS.keys()))
     data = []
@@ -72,15 +73,17 @@ def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
             'weather': weather,
             'start': start,
             'target': target,
-            'n_pedestrians': n_pedestrians,
-            'n_vehicles': n_vehicles,
+            'n_pedestrians': random.randint(100, 250),
+            'n_vehicles': random.randint(40, 100),
         }
 
         env.init(**env_params)
         env.success_dist = 5.0
         env.tick()
         i = 0
-        while not env.is_success() and not env.collided and len(data) <= max_rollout_length:
+        total_rewards = 0
+        while not env.is_success() and not env.collided and not env.traffic_tracker.ran_light and \
+                len(data) <= max_rollout_length:
 
             state = env.get_observations()
             control, action, action_logprobs = image_agent.run_step(state)
@@ -95,10 +98,10 @@ def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
             birdview_img = crop_birdview(state["birdview"], dx=-10)
             state_value = critic.evaluate(*critic.prepare_data(birdview_img, speed, command))
 
-            reward = env.get_reward()
-            is_terminal = env.collided or env.is_failure() or env.is_success()
+            reward = env.get_reward(speed, **kwargs)
+            is_terminal = env.collided or env.is_failure() or env.is_success() or env.traffic_tracker.ran_light
 
-            if i % 50 == 0:
+            if i % 30 == 0:
                 env.move_spectator_to_player()
 
             data.append({
@@ -114,14 +117,12 @@ def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
                 'reward': reward,
                 'is_terminal': is_terminal
             })
-
+            total_rewards += reward
             progress.update(1)
             i += 1
 
-            # DEBUG
             if len(data) >= max_rollout_length:
                 break
-            # DEBUG END
 
         print("Collided: ", env.collided)
         print("Success: ", env.is_success())
@@ -131,11 +132,12 @@ def rollout(replay_buffer, image_agent, critic, device, max_rollout_length=4000,
         env._world.apply_settings(env_settings)
     for datum in data:
         replay_buffer.add_data(**datum)
+    return total_rewards
 
 
 def update(replay_buffer, image_agent, optimizer, device, episode, critic, critic_criterion, epoch_per_episode=5,
            gamma=0.99, lmbda=0.5,
-           eps_clip=0.05):
+           eps_clip=0.05, batch_size = 24):
     def to_tensor(x):
         return torch.tensor(x, dtype=torch.float32).to(device)
 
@@ -147,10 +149,10 @@ def update(replay_buffer, image_agent, optimizer, device, episode, critic, criti
     # Calculate advantages using generalized advantage estimation (GAE)
     advantages = to_tensor(gae(rewards, terminals, values, gamma=gamma, lmbda=lmbda, normalize=True))
 
-    # Calculate rewards-to-go, used later for calculating loss for the critic
+    # Calculate rewards-to-go, used later when calculating loss for the critic
     rewards_to_go = to_tensor(rtgs(rewards, terminals, normalize=True))
 
-    loader = torch.utils.data.DataLoader(replay_buffer, batch_size=10, num_workers=0, pin_memory=False,
+    loader = torch.utils.data.DataLoader(replay_buffer, batch_size=batch_size, num_workers=0, pin_memory=False,
                                          shuffle=True, drop_last=True)
     for epoch in range(epoch_per_episode):
         for i, (idxes, old_states, old_actions, old_logprobs, _, _) in tqdm(enumerate(loader)):
@@ -167,7 +169,7 @@ def update(replay_buffer, image_agent, optimizer, device, episode, critic, criti
             ratios = torch.exp(logprobs - old_logprobs)
 
             # Evaluate state values with the critic
-            state_values = critic(birdview_img, speed, command)
+            state_values = critic(birdview_img, speed, command).squeeze()
 
             # PPO objective function
             surr1 = ratios * advantages[idxes]
@@ -230,9 +232,11 @@ def train(config):
 
     replay_buffer = PPOReplayBuffer(**config["buffer_args"])
     device = config["device"]
-    action_std = 0.01
+    action_std = 0.001
     min_action_std = 0.0001
     action_std_decay_rate = 0.001
+
+    reward_args = {'alpha': 1, 'beta': 1, 'phi': 250, 'delta': 250}
 
     actor_net = setup_image_model(**config["actor"], device=device, all_branch=True,
                                   imagenet_pretrained=False)
@@ -240,7 +244,7 @@ def train(config):
                                       imagenet_pretrained=False)
     image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
     image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, action_std=action_std,
-                                min_action_std=min_action_std,
+                                min_action_std=min_action_std, action_std_decay_rate=action_std_decay_rate,
                                 **image_agent_kwargs)
 
     # TODO: Enable loading av pretrained ckpt
@@ -254,13 +258,13 @@ def train(config):
     for episode in range(config['max_episode']):
         for i in range(config["rollouts_per_ep"]):
             print("Episode ", episode + 1, ", Rollout ", i + 1)
-            rollout(replay_buffer, image_agent, critic_net, max_rollout_length=config['max_rollout_length'],
-                    port=config['port'], device=device)
+            rewards = rollout(replay_buffer, image_agent, critic_net, max_rollout_length=config['max_rollout_length'],
+                    port=config['port'], **reward_args)
         # import pdb; pdb.set_trace()
         update(replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
-               epoch_per_episode=config["epoch_per_episode"])
+               epoch_per_episode=config["epoch_per_episode"], batch_size=config["batch_size"])
 
-        image_agent.decay_action_std(actor_std_decay_rate)
+        image_agent.decay_action_std()
         replay_buffer.clear_buffer()
 
 
@@ -272,7 +276,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_rollout_length', type=int, default=4000)
     parser.add_argument('--rollouts_per_ep', type=int, default=1)
     parser.add_argument('--epoch_per_episode', type=int, default=5)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=20)
     parser.add_argument('--speed_noise', type=float, default=0.0)
 
     # ACTOR

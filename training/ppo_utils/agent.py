@@ -32,7 +32,7 @@ class PPOImageAgent(Agent):
                  **kwargs):
         super().__init__(**kwargs)
 
-        # self.model is the current policy being updated
+        # 'self.model' is the current policy being updated
         self.policy_old = policy_old
 
         self.fixed_offset = float(camera_args['fixed_offset'])
