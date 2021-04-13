@@ -26,9 +26,8 @@ except IndexError as e:
     pass
 
 import utils.bz_utils as bzu
-from training.phase2_utils import setup_image_model
+from training.phase2_utils import setup_image_model, show_rgb_semseg_depth
 from models.birdview import BirdViewPolicyModelSS
-from models.image import ImagePolicyModelSS
 from utils.train_utils import one_hot
 from utils.datasets.image_lmdb import get_image as load_data
 
@@ -162,7 +161,7 @@ def repeat(a, repeats, dim=0):
     return torch.index_select(a, dim, order_index)
 
 
-def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_train, config, is_first_epoch):
+def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_train, config, is_first_epoch, display=False):
     if is_train:
         desc = 'Train'
         net.train()
@@ -178,9 +177,13 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
     
     import torch.distributions as tdist
     noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
+    imgs = None
+    for i, (image, birdview, location, command, speed) in iterator:
+        image = image.to(config['device'])
 
-    for i, (rgb_image, birdview, location, command, speed) in iterator:
-        rgb_image = rgb_image.to(config['device'])
+        if display and image.shape[1] > 3 and imgs is None:
+            imgs = image
+
         birdview = birdview.to(config['device'])
         command = one_hot(command).to(config['device'])
         speed = speed.to(config['device'])
@@ -188,9 +191,9 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         if is_train and config['speed_noise'] > 0:
             speed += noiser.sample(speed.size()).to(speed.device)
             speed = torch.clamp(speed, 0, 10)
-        if len(rgb_image.size()) > 4:
-            B, batch_aug, c, h, w = rgb_image.size()
-            rgb_image = rgb_image.view(B*batch_aug,c,h,w)
+        if len(image.size()) > 4:
+            B, batch_aug, c, h, w = image.size()
+            image = image.view(B*batch_aug,c,h,w)
             birdview = repeat(birdview, batch_aug)
             command = repeat(command, batch_aug)
             speed = repeat(speed, batch_aug)
@@ -199,7 +202,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         with torch.no_grad():
             _teac_location, _teac_locations = teacher_net(birdview, speed, command)
         
-        _pred_location, _pred_locations = net(rgb_image, speed, command)
+        _pred_location, _pred_locations = net(image, speed, command)
         pred_location = coord_converter(_pred_location)
         pred_locations = coord_converter(_pred_locations)
         
@@ -219,7 +222,10 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         if should_log:
             metrics = dict()
             metrics['loss'] = loss_mean.item()
-            
+            if image.shape[1] > 3:
+                rgb_image = image[:, 0:3]
+            else:
+                rgb_image = image
             images = _log_visuals(
                     rgb_image, birdview, speed, command, loss,
                     pred_location, (_pred_location+1)*coord_converter._img_size/2, _teac_location)
@@ -234,17 +240,22 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         if is_first_epoch and i == 10:
             iterator_tqdm.close()
             break
+    if imgs is not None:
+        show_rgb_semseg_depth(imgs)
 
 
 def train(config):
+    assert config['use_cv'] == (config['data_args']['batch_aug'] > 1),\
+        "Currently not legal to have batch aug > 1 and use_cv = True"
     bzu.log.init(config['log_dir'])
     bzu.log.save_config(config)
     teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
 
-    data_train, data_val = load_data(**config['data_args'])
+    data_train, data_val = load_data(**config['data_args'], use_cv=config['use_cv'])
     criterion = LocationLoss()
 
-    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True)
+    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
+                            use_cv=config["use_cv"])
 
     teacher_net = BirdViewPolicyModelSS(teacher_config['model_args']['backbone'], pretrained=True, all_branch=True).to(
         config['device'])
@@ -277,7 +288,6 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained', action='store_true')
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--perception_ckpt', default="")
-    parser.add_argument('--n_semantic_classes', type=int, default=6)
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -292,6 +302,8 @@ if __name__ == '__main__':
     parser.add_argument('--augment', choices=['medium', 'medium_harder', 'super_hard', 'None', 'custom'],
                         default='super_hard')
     parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--use_cv', default=False, action='store_true',
+                        help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
 
     # Optimizer.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -306,6 +318,7 @@ if __name__ == '__main__':
         'phase0_ckpt': parsed.ckpt,
         'optimizer_args': {'lr': parsed.lr},
         'speed_noise': parsed.speed_noise,
+        'use_cv': parsed.use_cv,
         'data_args': {
             'dataset_dir': parsed.dataset_dir,
             'batch_size': parsed.batch_size,
@@ -321,7 +334,6 @@ if __name__ == '__main__':
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
             'perception_ckpt': parsed.perception_ckpt,
-            'n_semantic_classes': parsed.n_semantic_classes
         },
         'teacher_args': {
             'model_path': parsed.teacher_path,

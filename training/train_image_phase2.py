@@ -27,7 +27,8 @@ except IndexError as e:
 from bird_view.utils import carla_utils as cu
 from utils.train_utils import one_hot
 from benchmark import make_suite
-
+from perception.utils.segmentation_labels import DEFAULT_CLASSES
+from perception.utils.helpers import get_segmentation_tensor
 BACKBONE = 'resnet34'
 GAP = 5
 N_STEP = 5
@@ -67,7 +68,7 @@ def get_control(agent_control, teacher_control, episode, beta=0.95):
 def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
         image_agent_kwargs=dict(), birdview_agent_kwargs=dict(),
         episode_length=1000,
-        n_vehicles=100, n_pedestrians=250, port=2000, planner="new"):
+        n_vehicles=100, n_pedestrians=250, port=2000, planner="new", use_cv=False):
 
     from models.image import ImageAgent
     from models.birdview import BirdViewAgent
@@ -94,7 +95,7 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
 
         while len(data) < episode_length:
 
-            with make_suite('NoCrashTown01-v1', port=port, planner=planner) as env:
+            with make_suite('NoCrashTown01-v1', port=port, planner=planner, use_cv=use_cv) as env:
 
                 start, target = env.pose_tasks[np.random.randint(len(env.pose_tasks))]
                 env_params = {
@@ -109,6 +110,7 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
                 env.success_dist = 5.0
 
                 image_agent_kwargs['model'] = net
+                image_agent_kwargs['use_cv'] = use_cv
                 birdview_agent_kwargs['model'] = teacher_net
 
                 image_agent = ImageAgent(**image_agent_kwargs)
@@ -122,6 +124,15 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
                         env.move_spectator_to_player()
 
                     observations = env.get_observations()
+
+                    data_dict = {}
+                    if use_cv:
+                        observations['depth'] = observations['depth'] / 255
+                        data_dict.update({
+                            'semseg': observations['semseg'].copy(),
+                            'depth': observations['depth'].copy()
+                        })
+
                     image_control, _image_points = image_agent.run_step(observations, teaching=True)
                     _image_points = coord_converter(_image_points)
                     image_points = _image_points/(0.5*CROP_SIZE)-1
@@ -131,8 +142,7 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
                     control = get_control(image_control, birdview_control, episode)
 
                     env.apply_control(control)
-
-                    data.append({
+                    data_dict.update({
                         'rgb_img': observations["rgb"].copy(),
                         'cmd': int(observations["command"]),
                         'speed': np.linalg.norm(observations["velocity"]),
@@ -140,6 +150,7 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
                         'weight': weight,
                         'birdview_img': crop_birdview(observations['birdview'], dx=-10),
                     })
+                    data.append(data_dict)
 
                     progress.update(1)
 
@@ -180,10 +191,10 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
         loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=0, pin_memory=True, shuffle=True, drop_last=True)
 
         description = "Epoch " + str(epoch)
-        for i, (idxes, rgb_image, command, speed, target, birdview) in tqdm.tqdm(enumerate(loader), desc=description):
+        for i, (idxes, image, command, speed, target, birdview) in tqdm.tqdm(enumerate(loader), desc=description):
             #if i % 100 == 0:
                 #print ("ITER: %d"%i)
-            rgb_image = rgb_image.to(config['device']).float()
+            image = image.to(config['device']).float()
             birdview = birdview.to(config['device']).float()
             command = one_hot(command).to(config['device']).float()
             speed = speed.to(config['device']).float()
@@ -192,20 +203,20 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
                 speed += noiser.sample(speed.size()).to(speed.device)
                 speed = torch.clamp(speed, 0, 10)
 
-            if len(rgb_image.size()) > 4:
-                B, batch_aug, c, h, w = rgb_image.size()
-                rgb_image = rgb_image.view(B*batch_aug,c,h,w)
+            if len(image.size()) > 4:
+                B, batch_aug, c, h, w = image.size()
+                image = image.view(B*batch_aug,c,h,w)
                 birdview = repeat(birdview, batch_aug)
                 command = repeat(command, batch_aug)
                 speed = repeat(speed, batch_aug)
             else:
-                B = rgb_image.size(0)
+                B = image.size(0)
                 batch_aug = 1
 
             with torch.no_grad():
                 _teac_location, _teac_locations = teacher_net(birdview, speed, command)
 
-            _pred_location, _pred_locations = net(rgb_image, speed, command)
+            _pred_location, _pred_locations = net(image, speed, command)
             pred_location = coord_converter(_pred_location)
             pred_locations = coord_converter(_pred_locations)
 
@@ -231,7 +242,10 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
             if should_log:
                 metrics = dict()
                 metrics['loss'] = loss_mean.item()
-
+                if image.shape[1] > 3:
+                    rgb_image = image[:, 0:3]
+                else:
+                    rgb_image = image
                 images = _log_visuals(
                     rgb_image, birdview, speed, command, loss,
                     pred_location, (_pred_location+1)*coord_converter._img_size/2, _teac_location)
@@ -241,8 +255,8 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
         replay_buffer.normalize_weights()
 
-        rgb_image, birdview, command, speed, target = replay_buffer.get_highest_k(32)
-        rgb_image = rgb_image.to(config['device']).float()
+        image, birdview, command, speed, target = replay_buffer.get_highest_k(32)
+        image = image.to(config['device']).float()
         birdview = birdview.to(config['device']).float()
         command = one_hot(command).to(config['device']).float()
         speed = speed.to(config['device']).float()
@@ -251,13 +265,17 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
             _teac_location, _teac_locations = teacher_net(birdview, speed, command)
 
         net.eval()
-        _pred_location, _pred_locations = net(rgb_image, speed, command)
+        _pred_location, _pred_locations = net(image, speed, command)
         pred_location = coord_converter(_pred_location)
         pred_locations = coord_converter(_pred_locations)
         pred_location_normed = pred_location / (0.5*CROP_SIZE) - 1.
         weights = get_weight(pred_location_normed, _teac_location)
 
         # TODO: Plot highest
+        if image.shape[1] > 3:
+            rgb_image = image[:, 0:3]
+        else:
+            rgb_image = image
         images = _log_visuals(
             rgb_image, birdview, speed, command, weights,
             pred_location, (_pred_location+1)*coord_converter._img_size/2, _teac_location)
@@ -272,6 +290,8 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
 
 def train(config):
+    assert config["use_cv"] == (config["buffer_args"]["batch_aug"] > 1), \
+        "Currently not legal to have batch aug > 1 and use_cv = True"
     import utils.bz_utils as bzu
     from training.phase2_utils import (
         CoordConverter,
@@ -280,10 +300,10 @@ def train(config):
         load_birdview_model,
         setup_image_model
     )
-    replay_buffer = ReplayBuffer(**config["buffer_args"])
+    replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=config['use_cv'])
     if config['resume_episode'] > 0:
         print("Resuming from previous run. Setting up replay buffer from episode {}".format(config["resume_episode"]))
-        print("Loading rgb images, cmds, speeds and targets")
+        print("Loading images, cmds, speeds and targets")
         image_data = torch.load(
             Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(config["resume_episode"]))
 
@@ -300,10 +320,15 @@ def train(config):
         assert len(replay_buffer_weights) == len(image_data), "dint find enough weights"
 
         for i in range(len(image_data)):
-            rgb_img, cmd, speed, target = image_data[i]
+            input_data, cmd, speed, target = image_data[i]
             birdview = birdview_data[i]
             weight = replay_buffer_weights[i]
-            replay_buffer.add_data(rgb_img, cmd, speed, target, birdview, weight)
+            if config['use_cv']:
+                rgb, semseg, depth = input_data
+                replay_buffer.add_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
+            else:
+                replay_buffer.add_data(input_data, cmd, speed, target, birdview, weight)
+
         replay_buffer.normalized = True
         print("Replay buffer complete.")
 
@@ -320,7 +345,8 @@ def train(config):
     # teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
 
     criterion = LocationLoss()
-    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False)
+    net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False,
+                            use_cv=config['use_cv'])
 
     teacher_net = load_birdview_model(
         "resnet18",
@@ -336,9 +362,9 @@ def train(config):
     for episode in tqdm.tqdm(range(begin_episode, config['max_episode'] + begin_episode), initial=begin_episode,
                              desc='Episode'):
         rollout(replay_buffer, coord_converter, net, teacher_net, episode, episode_length=config['episode_length'],
-                image_agent_kwargs=image_agent_kwargs, port=config['port'])
+                image_agent_kwargs=image_agent_kwargs, port=config['port'], use_cv=config["use_cv"])
 
-        print("Saving rgb images, cmds, speeds and targets from replay buffer...")
+        print("Saving images, cmds, speeds and targets from replay buffer...")
         torch.save(replay_buffer.get_image_data(),
                    Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
 
@@ -365,7 +391,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--speed_noise', type=float, default=0.0)
     parser.add_argument('--batch_aug', type=int, default=1)
-
+    parser.add_argument('--use_cv', default=False, action='store_true',
+                        help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
     # resume flag will continue from the chosen epoch with the saved replay buffer. Assumes identical config
     parser.add_argument('--resume_episode', type=int, default=0)
 
@@ -399,6 +426,7 @@ if __name__ == '__main__':
             'phase1_ckpt': parsed.ckpt,
             'resume_episode': parsed.resume_episode,
             'optimizer_args': {'lr': parsed.lr},
+            'use_cv': parsed.use_cv,
             'buffer_args': {
                 'buffer_limit': 200000,
                 'batch_aug': parsed.batch_aug,
