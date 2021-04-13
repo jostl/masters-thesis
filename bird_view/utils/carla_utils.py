@@ -57,7 +57,7 @@ COLORS = [
 
 
 TOWNS = ['Town01', 'Town02', 'Town03', 'Town04']
-VEHICLE_NAME = 'vehicle.audi.tt'
+VEHICLE_NAME = 'vehicle.mustang.mustang'
 
 def is_within_distance_ahead(target_location, current_location, orientation, max_distance, degree=60):
     u = np.array([
