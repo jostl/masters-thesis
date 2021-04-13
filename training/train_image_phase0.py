@@ -19,7 +19,7 @@ except IndexError:
     pass
 
 import cv2
-from training.phase2_utils import setup_image_model
+from training.phase2_utils import setup_image_model, show_rgb_semseg_depth
 
 try:
     sys.path.append(glob.glob('../PythonAPI')[0])
@@ -157,7 +157,8 @@ def _log_visuals(rgb_image, birdview, speed, command, loss, pred_locations, teac
 
 
 
-def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_train, config, is_first_epoch):
+def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_train, config, is_first_epoch,
+                  display=False):
     if is_train:
         desc = 'Train'
         net.train()
@@ -171,8 +172,13 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
 
     tick = time.time()
 
-    for i, (rgb_image, birdview, location, command, speed) in iterator:
-        rgb_image = rgb_image.to(config['device'])
+    imgs = None
+    for i, (image, birdview, location, command, speed) in iterator:
+        image = image.to(config['device'])
+
+        if display and image.shape[1] > 3 and imgs is None:
+            imgs = image
+
         birdview = birdview.to(config['device'])
         command = one_hot(command).to(config['device'])
         speed = speed.to(config['device'])
@@ -180,7 +186,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         with torch.no_grad():
             _teac_location = teacher_net(birdview, speed, command)
         
-        _pred_location = net(rgb_image, speed, command)
+        _pred_location = net(image, speed, command)
         pred_location = (_pred_location + 1) * coord_converter._img_size/2
         teac_location = coord_converter(_teac_location)
         
@@ -200,7 +206,10 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         if should_log:
             metrics = dict()
             metrics['loss'] = loss_mean.item()
-
+            if image.shape[1] > 3:
+                rgb_image = image[:, 0:3]
+            else:
+                rgb_image = image
             images = _log_visuals(
                     rgb_image, birdview, speed, command, loss,
                     pred_location, teac_location, _teac_location)
@@ -215,6 +224,8 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         if is_first_epoch and i == 10:
             iterator_tqdm.close()
             break
+    if imgs is not None:
+        show_rgb_semseg_depth(imgs)
 
 
 def train(config):
@@ -222,9 +233,10 @@ def train(config):
     bzu.log.save_config(config)
     teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
 
-    data_train, data_val = load_data(**config['data_args'])
+    data_train, data_val = load_data(**config['data_args'], use_cv=config['use_cv'])
     criterion = LocationLoss(**config['camera_args'])
-    net = setup_image_model(**config["model_args"], device=config["device"], all_branch = False)
+    net = setup_image_model(**config["model_args"], device=config["device"], all_branch = False,
+                            use_cv=config["use_cv"])
 
     teacher_net = BirdViewPolicyModelSS(teacher_config['model_args']['backbone']).to(config['device'])
     teacher_net.load_state_dict(torch.load(config['teacher_args']['model_path']))
@@ -254,7 +266,6 @@ if __name__ == '__main__':
     # Model
     parser.add_argument('--pretrained', action='store_true')
     parser.add_argument('--perception_ckpt', default="")
-    parser.add_argument('--n_semantic_classes', type=int, default=6)
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -266,6 +277,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=96)
     parser.add_argument('--augment', choices=['None', 'medium', 'medium_harder', 'super_hard'], default=None)
     parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--use_cv', default=False, action='store_true',
+                        help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
 
     # Optimizer.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -278,6 +291,7 @@ if __name__ == '__main__':
         'max_epoch': parsed.max_epoch,
         'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
         'optimizer_args': {'lr': parsed.lr},
+        'use_cv' : parsed.use_cv,
         'data_args': {
             'dataset_dir': parsed.dataset_dir,
             'batch_size': parsed.batch_size,
@@ -291,7 +305,6 @@ if __name__ == '__main__':
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
             'perception_ckpt': parsed.perception_ckpt,
-            'n_semantic_classes': parsed.n_semantic_classes
         },
         'camera_args': {
             'w': 384,

@@ -10,7 +10,8 @@ from .agent import Agent
 from .controller import CustomController, PIDController
 from .controller import ls_circle
 from perception.perception_model import MobileNetUNet
-
+from perception.utils.segmentation_labels import DEFAULT_CLASSES
+from perception.utils.helpers import get_segmentation_tensor
 CROP_SIZE = 192
 STEPS = 5
 COMMANDS = 4
@@ -109,7 +110,7 @@ class FullModel(nn.Module):
 
 class ImageAgent(Agent):
     def __init__(self, steer_points=None, pid=None, gap=5,
-                 camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, **kwargs):
+                 camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, use_cv=False, **kwargs):
         super().__init__(**kwargs)
 
         self.fixed_offset = float(camera_args['fixed_offset'])
@@ -138,6 +139,7 @@ class ImageAgent(Agent):
         self.brake_threshold = 2.0
 
         self.last_brake = -1
+        self.use_cv = use_cv
 
     def run_step(self, observations, teaching=False):
         rgb = observations['rgb'].copy()
@@ -149,10 +151,21 @@ class ImageAgent(Agent):
             _rgb = self.transform(rgb).to(self.device).unsqueeze(0)
             _speed = torch.FloatTensor([speed]).to(self.device)
             _command = command.to(self.device).unsqueeze(0)
-            if self.model.all_branch:
-                model_pred, _ = self.model(_rgb, _speed, _command)
+
+            if self.use_cv:
+                semseg = self.transform(get_segmentation_tensor(observations['semseg'].copy(),
+                                                                classes=DEFAULT_CLASSES)).float().to(self.device)
+                depth = self.transform(observations['depth'].copy()).float().to(self.device)
+                # Stack RGB, semseg and depth.
+                # Need to unsqueeze in order to make prediction, because 'image' must be a batch with a single instance
+                image = torch.cat([_rgb.squeeze(), semseg, depth], dim=0).unsqueeze(0)
             else:
-                model_pred = self.model(_rgb, _speed, _command)
+                image = _rgb
+
+            if self.model.all_branch:
+                model_pred, _ = self.model(image, _speed, _command)
+            else:
+                model_pred = self.model(image, _speed, _command)
 
         model_pred = model_pred.squeeze().detach().cpu().numpy()
         
