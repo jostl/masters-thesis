@@ -16,7 +16,10 @@ except IndexError as e:
 import utils.carla_utils as cu
 from models.image import ImagePolicyModelSS, FullModel
 from models.birdview import BirdViewPolicyModelSS
-
+from perception.utils.helpers import get_segmentation_tensor
+from perception.utils.visualization import display_images_horizontally, get_rgb_segmentation, get_segmentation_colors
+from perception.utils.segmentation_labels import DEFAULT_CLASSES
+from bird_view.models import common
 CROP_SIZE = 192
 PIXELS_PER_METER = 5
 
@@ -188,7 +191,8 @@ class LocationLoss(torch.nn.Module):
         return torch.mean(torch.abs(pred_locations - teac_locations), dim=(1,2,3))
 
 class ReplayBuffer(torch.utils.data.Dataset):
-    def __init__(self, buffer_limit=100000, augment=None, sampling=True, aug_fix_iter=1000000, batch_aug=4):
+    def __init__(self, buffer_limit=100000, augment=None, sampling=True, aug_fix_iter=1000000, batch_aug=4,
+                 use_cv=False, semantic_classes=DEFAULT_CLASSES):
         self.buffer_limit = buffer_limit
         self._data = []
         self._weights = []
@@ -197,7 +201,13 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self.birdview_transform = transforms.Compose([
             transforms.ToTensor(),
         ])
-        
+        self.normalize_rgb = transforms.Compose([
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+        self.to_tensor = transforms.Compose([
+            transforms.ToTensor()
+        ])
         if augment and augment != 'None':
             self.augmenter = getattr(augmenter, augment)
         else:
@@ -207,6 +217,9 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self._sampling = sampling
         self.aug_fix_iter = aug_fix_iter
         self.batch_aug = batch_aug
+
+        self.use_cv = use_cv
+        self.semantic_classes = semantic_classes
             
     def __len__(self):
         return len(self._data)
@@ -221,7 +234,12 @@ class ReplayBuffer(torch.utils.data.Dataset):
         else:
             idx = _idx
             
-        rgb_img, cmd, speed, target, birdview_img = self._data[idx]
+        image_data, cmd, speed, target, birdview_img = self._data[idx]
+        if self.use_cv:
+            rgb_img = image_data[0]
+        else:
+            rgb_img = image_data
+
         if self.augmenter:
             rgb_imgs = [self.augmenter(self.aug_fix_iter).augment_image(rgb_img) for i in range(self.batch_aug)]
         else:
@@ -235,6 +253,12 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
         birdview_img = self.birdview_transform(birdview_img)
 
+        if self.use_cv:
+            semantic_image = self.to_tensor(get_segmentation_tensor(image_data[1], classes=DEFAULT_CLASSES)).float()
+            depth_image = self.to_tensor(image_data[2]).float()
+            rgb_imgs = self.normalize_rgb(rgb_imgs)
+            image = torch.cat([rgb_imgs, semantic_image, depth_image])
+            return idx, image, cmd, speed, target, birdview_img
         return idx, rgb_imgs, cmd, speed, target, birdview_img
         
     def update_weights(self, idxes, losses):
@@ -253,9 +277,13 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self._weights = self._new_weights
         self.normalized = True
 
-    def add_data(self, rgb_img, cmd, speed, target, birdview_img, weight):
+    def add_data(self, rgb_img, cmd, speed, target, birdview_img, weight, semseg=None, depth=None):
         self.normalized = False
-        self._data.append((rgb_img, cmd, speed, target, birdview_img))
+        if semseg is not None and depth is not None:
+            image_data = (rgb_img, semseg, depth)
+        else:
+            image_data = rgb_img
+        self._data.append((image_data, cmd, speed, target, birdview_img))
         self._weights.append(weight)
             
         if len(self._data) > self.buffer_limit:
@@ -271,7 +299,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
             
     def get_highest_k(self, k):
         top_idxes = np.argsort(self._weights)[-k:]
-        rgb_images = []
+        images = []
         bird_views = []
         targets = []
         cmds = []
@@ -279,14 +307,23 @@ class ReplayBuffer(torch.utils.data.Dataset):
         
         for idx in top_idxes:
             if idx < len(self._data):
-                rgb_img, cmd, speed, target, birdview_img = self._data[idx]
-                rgb_images.append(TF.to_tensor(np.ascontiguousarray(rgb_img)))
+                image, cmd, speed, target, birdview_img = self._data[idx]
+                if self.use_cv:
+                    def transpose(img):
+                        return img.transpose(2, 0, 1)
+                    rgb_img, semseg, depth = image
+                    rgb_img = transpose(rgb_img)
+                    semseg = transpose(get_segmentation_tensor(semseg, classes=DEFAULT_CLASSES))
+                    depth = np.array([depth])
+                    image = np.concatenate((rgb_img, semseg, depth), axis=0).transpose(1, 2, 0)
+
+                images.append(TF.to_tensor(np.ascontiguousarray(image)))
                 bird_views.append(TF.to_tensor(birdview_img))
                 cmds.append(cmd)
                 speeds.append(speed)
                 targets.append(target)
 
-        return torch.stack(rgb_images), torch.stack(bird_views), torch.FloatTensor(cmds), torch.FloatTensor(
+        return torch.stack(images), torch.stack(bird_views), torch.FloatTensor(cmds), torch.FloatTensor(
             speeds), torch.FloatTensor(targets)
 
     def get_weights(self):
@@ -301,11 +338,11 @@ class ReplayBuffer(torch.utils.data.Dataset):
         return birdview_data
 
 
-def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="", n_semantic_classes=6,
-                      image_ckpt="", all_branch=False, **kwargs):
+def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="", semantic_classes=DEFAULT_CLASSES,
+                      image_ckpt="", use_cv=False, all_branch=False, **kwargs):
     if perception_ckpt:
         net = FullModel(image_backbone=backbone, image_pretrained=imagenet_pretrained,
-                        n_semantic_classes=n_semantic_classes, all_branch=all_branch)
+                        n_semantic_classes=len(semantic_classes) + 1, all_branch=all_branch)
         net.perception.load_state_dict(torch.load(perception_ckpt, map_location=device))
         net.perception.set_rgb_decoder(use_rgb_decoder=False)
         # Dont calculate gradients for perception layers
@@ -313,6 +350,11 @@ def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="",
             param.requires_grad = False
         if image_ckpt:
             net.image_model.load_state_dict(torch.load(image_ckpt))
+    elif use_cv:
+        net = ImagePolicyModelSS(backbone, pretrained=imagenet_pretrained, all_branch=all_branch,
+                                 input_channel=len(semantic_classes) + 1 + 3 + 1)
+        if image_ckpt:
+            net.load_state_dict(torch.load(image_ckpt))
     else:
         net = ImagePolicyModelSS(
             backbone,
@@ -322,3 +364,20 @@ def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="",
         if image_ckpt:
             net.load_state_dict(torch.load(image_ckpt))
     return net.to(device)
+
+def show_rgb_semseg_depth(image):
+    rgb = image[0, 0:3]
+    semseg = image[0, 3:12]
+    depth = image[0, -1]
+
+    display_images = [rgb.cpu().numpy().transpose(1, 2, 0),
+                      semseg.cpu().numpy().transpose(1, 2, 0),
+                      depth.cpu().numpy()]
+    class_colors = get_segmentation_colors(9, class_indxs=DEFAULT_CLASSES)
+    semseg_rgb = get_rgb_segmentation(semantic_image=display_images[1],
+                                      class_colors=class_colors)
+
+    semseg_rgb = semseg_rgb / 255
+    display_images[1] = semseg_rgb
+
+    display_images_horizontally(display_images, fig_width=10, fig_height=2)
