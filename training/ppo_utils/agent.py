@@ -26,7 +26,7 @@ DT = 0.1
 
 
 class PPOImageAgent(Agent):
-    def __init__(self, replay_buffer, policy_old, steer_points=None, pid=None, gap=5,
+    def __init__(self, policy_old, steer_points=None, pid=None, gap=5,
                  camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, action_std=0.01,
                  min_action_std=0.001, action_std_decay_rate = 0.0001,
                  **kwargs):
@@ -56,7 +56,6 @@ class PPOImageAgent(Agent):
         self.steer_points = steer_points
         self.turn_control = CustomController(pid)
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
-        self.replay_buffer = replay_buffer
         self.engine_brake_threshold = 2.0
         self.brake_threshold = 2.0
 

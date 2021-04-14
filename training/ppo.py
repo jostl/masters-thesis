@@ -17,7 +17,7 @@ try:
 except IndexError as e:
     pass
 import argparse
-
+from configparser import ConfigParser
 from pathlib import Path
 
 import numpy as np
@@ -74,7 +74,7 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
             'start': start,
             'target': target,
             'n_pedestrians': random.randint(100, 250),
-            'n_vehicles': random.randint(40, 100),
+            'n_vehicles': random.randint(60, 120),
         }
 
         env.init(**env_params)
@@ -135,9 +135,10 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
     return total_rewards
 
 
-def update(replay_buffer, image_agent, optimizer, device, episode, critic, critic_criterion, epoch_per_episode=5,
+def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic, critic_criterion,
+           epoch_per_episode=5,
            gamma=0.99, lmbda=0.5,
-           eps_clip=0.05, batch_size = 24):
+           clip_ratio=0.05, batch_size=24):
     def to_tensor(x):
         return torch.tensor(x, dtype=torch.float32).to(device)
 
@@ -173,7 +174,7 @@ def update(replay_buffer, image_agent, optimizer, device, episode, critic, criti
 
             # PPO objective function
             surr1 = ratios * advantages[idxes]
-            surr2 = torch.clamp(ratios, 1 - eps_clip, 1 + eps_clip) * advantages[idxes]
+            surr2 = torch.clamp(ratios, 1 - clip_ratio, 1 + clip_ratio) * advantages[idxes]
             loss = -torch.min(surr1, surr2) + \
                    0.5 * critic_criterion(state_values, rewards_to_go[idxes]) - 0.01 * dist_entropy
 
@@ -224,117 +225,103 @@ def rtgs(rewards, terminals, normalize=False):
     return rewards_to_go
 
 
-def train(config):
-    import utils.bz_utils as bzu
+def main():
+    config = ConfigParser()
+    config.read("training/ppo_config/template.cfg")
 
-    bzu.log.init(config['log_dir'])
-    bzu.log.save_config(config)
+    # SETUP
+    log_dir = str(config["SETUP"]["log_dir"])
+    port = int(config["SETUP"]["port"])
+    device = str(config["SETUP"]["device"])
+    batch_size = int(config["SETUP"]["batch_size"])
+    num_workers = int(config["SETUP"]["num_workers"])
+    use_cv = str(config["SETUP"]["use_cv"]) == "True"
+    resume = str(config["SETUP"]["resume"]) == "True"
 
-    replay_buffer = PPOReplayBuffer(**config["buffer_args"])
-    device = config["device"]
-    action_std = 0.001
-    min_action_std = 0.0001
-    action_std_decay_rate = 0.001
+    # TRAINING (Hyperparameters)
+    max_episode = int(config["TRAINING"]["max_episode"])
+    max_rollout_length = int(config["TRAINING"]["max_rollout_length"])
+    rollouts_per_episode = int(config["TRAINING"]["rollouts_per_episode"])
+    epoch_per_episode = int(config["TRAINING"]["epoch_per_episode"])
+    clip_ratio = float(config["TRAINING"]["clip_ratio"])
+    gamma = float(config["TRAINING"]["gamma"])
+    lmbda = float(config["TRAINING"]["lambda"])
 
-    reward_args = {'alpha': 1, 'beta': 1, 'phi': 250, 'delta': 250}
+    # REWARD
+    alpha = float(config["REWARD"]["alpha"])
+    beta = float(config["REWARD"]["beta"])
+    phi = float(config["REWARD"]["phi"])
+    delta = float(config["REWARD"]["delta"])
 
-    actor_net = setup_image_model(**config["actor"], device=device, all_branch=True,
-                                  imagenet_pretrained=False)
-    actor_net_old = setup_image_model(**config["actor"], device=device, all_branch=True,
-                                      imagenet_pretrained=False)
-    image_agent_kwargs = {'camera_args': config["agent_args"]['camera_args']}
-    image_agent = PPOImageAgent(replay_buffer, model=actor_net, policy_old=actor_net_old, action_std=action_std,
+    # AGENT
+    action_std = float(config["AGENT"]["action_std"])
+    min_action_std = float(config["AGENT"]["min_action_std"])
+    action_std_decay_rate = float(config["AGENT"]["decay_rate"])
+    action_std_decay_frequency = float(config["AGENT"]["decay_frequency"])
+
+    # ACTOR
+    actor_ckpt = str(config["ACTOR"]["actor_ckpt"])
+    actor_lr = float(config["ACTOR"]["learning_rate"])
+    actor_imagenet_pretrained = str(config["ACTOR"]["imagenet_pretrained"]) == True
+    actor_backbone = str(config["ACTOR"]["backbone"])
+    use_trained_cv = str(config["ACTOR"]) == "True"
+
+    # CRITIC
+    critic_ckpt = str(config["CRITIC"]["critic_ckpt"])
+    critic_lr = float(config["CRITIC"]["learning_rate"])
+    critic_backbone = str(config["CRITIC"]["backbone"])
+
+    # Check if everything is legal
+    assert not resume and actor_ckpt, "Resuming training requires actor checkpoint. " \
+                                      "Actor path is empty."
+
+    assert not resume and critic_ckpt, "Resuming training requires critic checkpoint. " \
+                                       "Critic path is empty."
+
+    assert use_cv != use_trained_cv, 'Cannot use ground truth and "trained" computer vision at the same time.'
+
+    replay_buffer = PPOReplayBuffer()
+    reward_params = {'alpha': alpha, 'beta': beta, 'phi': phi, 'delta': delta}
+
+    # Setup actor networks
+    actor_net = setup_image_model(backbone=actor_backbone, image_ckpt=actor_ckpt, device=device,
+                                  imagenet_pretrained=actor_imagenet_pretrained, all_branch=True)
+    actor_net_old = setup_image_model(backbone=actor_backbone, image_ckpt=actor_ckpt, device=device,
+                                      imagenet_pretrained=actor_imagenet_pretrained)
+    # Setup agent
+    image_agent_kwargs = {
+        'camera_args': {'w': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}}
+
+    image_agent = PPOImageAgent(model=actor_net, policy_old=actor_net_old, action_std=action_std,
                                 min_action_std=min_action_std, action_std_decay_rate=action_std_decay_rate,
                                 **image_agent_kwargs)
 
-    # TODO: Enable loading av pretrained ckpt
-    critic_net = BirdViewCritic(backbone=config["critic"]["backbone"],
-                                device=device, all_branch=False).to(config["device"])
-
-    optimizer = torch.optim.Adam([{'params': actor_net.parameters(), 'lr': config["actor"]["lr"]},
-                                  {'params': critic_net.parameters(), 'lr': config["critic"]["lr"]}])
+    # Setup critic network and criterion
+    critic_net = BirdViewCritic(backbone=critic_backbone, device=device)
+    if critic_ckpt:
+        critic_net.load_state_dict(torch.load(critic_ckpt))
     critic_criterion = nn.MSELoss()
 
-    for episode in range(config['max_episode']):
-        for i in range(config["rollouts_per_ep"]):
+    # Setup optimizers
+    optimizer = torch.optim.Adam([{'params': actor_net.parameters(), 'lr': actor_lr},
+                                  {'params': critic_net.parameters(), 'lr': critic_lr}])
+
+    """
+     ======================
+         MAIN PPO LOOP 
+     ======================
+    """
+    for episode in range(max_episode):
+        for i in range(rollouts_per_episode):
             print("Episode ", episode + 1, ", Rollout ", i + 1)
-            rewards = rollout(replay_buffer, image_agent, critic_net, max_rollout_length=config['max_rollout_length'],
-                    port=config['port'], **reward_args)
-        # import pdb; pdb.set_trace()
-        update(replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
-               epoch_per_episode=config["epoch_per_episode"], batch_size=config["batch_size"])
+            rewards = rollout(replay_buffer, image_agent, critic_net, max_rollout_length,
+                              port=port, **reward_params)
+        update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
+               epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size)
 
         image_agent.decay_action_std()
         replay_buffer.clear_buffer()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--log_dir', required=True)
-    parser.add_argument('--log_iterations', default=100)
-    parser.add_argument('--max_episode', type=int, default=20)
-    parser.add_argument('--max_rollout_length', type=int, default=4000)
-    parser.add_argument('--rollouts_per_ep', type=int, default=1)
-    parser.add_argument('--epoch_per_episode', type=int, default=5)
-    parser.add_argument('--batch_size', type=int, default=20)
-    parser.add_argument('--speed_noise', type=float, default=0.0)
-
-    # ACTOR
-    parser.add_argument('--actor-ckpt', required=True)
-    parser.add_argument('--perception-ckpt', default="")
-    parser.add_argument('--n_semantic_classes', type=int, default=6)
-
-    # CRITIC
-    parser.add_argument('--critic-ckpt')
-
-    parser.add_argument('--fixed_offset', type=float, default=4.0)
-
-    # Optimizer.
-    parser.add_argument('--actor-lr', type=float, default=1e-4)
-    parser.add_argument('--critic-lr', type=float, default=1e-4)
-
-    # Misc
-    parser.add_argument('--port', type=int, default=2000)
-
-    parsed = parser.parse_args()
-
-    config = {
-        'port': parsed.port,
-        'log_dir': parsed.log_dir,
-        'log_iterations': parsed.log_iterations,
-        'batch_size': parsed.batch_size,
-        'max_episode': parsed.max_episode,
-        'max_rollout_length': parsed.max_rollout_length,
-        'rollouts_per_ep': parsed.rollouts_per_ep,
-        'speed_noise': parsed.speed_noise,
-        'epoch_per_episode': parsed.epoch_per_episode,
-        'device': 'cuda',
-        'optimizer_args': {'lr': parsed.actor_lr},
-        'buffer_args': {
-            'buffer_limit': 200000,
-        },
-        'actor': {
-            'model': 'image_ss',
-            'backbone': ACTOR_BACKBONE,
-            'image_ckpt': parsed.actor_ckpt,
-            'lr': parsed.actor_lr,
-            'perception_ckpt': parsed.perception_ckpt,
-            'n_semantic_classes': parsed.n_semantic_classes
-        },
-        'critic': {
-            'backbone': CRITIC_BACKBONE,
-            'critic_ckpt': parsed.critic_ckpt,
-            'lr': parsed.critic_lr
-        },
-        'agent_args': {
-            'camera_args': {
-                'w': 384,
-                'h': 160,
-                'fov': 90,
-                'world_y': 1.4,
-                'fixed_offset': parsed.fixed_offset,
-            }
-        }
-    }
-
-    train(config)
+    main()
