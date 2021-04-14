@@ -16,7 +16,6 @@ try:
     sys.path.append(glob.glob('../')[0])
 except IndexError as e:
     pass
-import argparse
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -32,9 +31,8 @@ from training.phase2_utils import setup_image_model
 from training.ppo_utils.agent import PPOImageAgent
 from training.ppo_utils.critic import BirdViewCritic
 from training.ppo_utils.replay_buffer import PPOReplayBuffer
+from training.ppo_utils.helpers import rtgs, gae
 
-ACTOR_BACKBONE = 'resnet34'
-CRITIC_BACKBONE = 'resnet18'
 GAP = 5
 N_STEP = 5
 CROP_SIZE = 192
@@ -136,9 +134,7 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
 
 
 def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic, critic_criterion,
-           epoch_per_episode=5,
-           gamma=0.99, lmbda=0.5,
-           clip_ratio=0.05, batch_size=24):
+           epoch_per_episode=5, gamma=0.99, lmbda=0.5, clip_ratio=0.05, batch_size=24, num_workers=0):
     def to_tensor(x):
         return torch.tensor(x, dtype=torch.float32).to(device)
 
@@ -153,8 +149,8 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
     # Calculate rewards-to-go, used later when calculating loss for the critic
     rewards_to_go = to_tensor(rtgs(rewards, terminals, normalize=True))
 
-    loader = torch.utils.data.DataLoader(replay_buffer, batch_size=batch_size, num_workers=0, pin_memory=False,
-                                         shuffle=True, drop_last=True)
+    loader = torch.utils.data.DataLoader(replay_buffer, batch_size=batch_size, num_workers=num_workers,
+                                         pin_memory=False, shuffle=True, drop_last=True)
     for epoch in range(epoch_per_episode):
         for i, (idxes, old_states, old_actions, old_logprobs, _, _) in tqdm(enumerate(loader)):
             # Unpack old_states into RGB, birdview, speed and command.
@@ -188,41 +184,7 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
 
     if episode in SAVE_EPISODES:
         torch.save(image_agent.model.state_dict(),
-                   str(Path(config['log_dir']) / ('model-%d.th' % episode)))
-
-
-def gae(rewards, terminals, values, gamma, lmbda, normalize=False):
-    # Calculates generalized advantage estimation (GAE).
-    # Code based on https://nn.labml.ai/rl/ppo/gae.html
-    n_advantages = len(rewards)
-    advantages = np.zeros(n_advantages)
-    last_advantage = 0
-    last_value = values[-1]
-    for t in reversed(range(n_advantages)):
-        mask = 1 - terminals[t]
-        last_value = last_value * mask
-        last_advantage = last_advantage * mask
-        delta = rewards[t] + gamma * last_value - values[t]
-        last_advantage = delta + gamma * lmbda * last_advantage
-        advantages[t] = last_advantage
-        last_value = values[t]
-    if normalize:
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-7)
-    return advantages
-
-
-def rtgs(rewards, terminals, normalize=False):
-    # Calculates rewards-to-go
-    # Code based on https://github.com/openai/spinningup/blob/master/spinup/examples/pytorch/pg_math/2_rtg_pg.py
-    n = len(rewards)
-    rewards_to_go = np.zeros_like(rewards)
-    for i in reversed(range(n)):
-        # Logic: 'i' is an index for a state.
-        # Only add rewards-to-go if 'i + 1' exist and 'i' is not a terminal state
-        rewards_to_go[i] = rewards[i] + (rewards_to_go[i + 1] if i + 1 < n and not terminals[i] else 0)
-    if normalize:
-        rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go) + 1e-7)
-    return rewards_to_go
+                   str(Path(log_dir) / ('model-%d.th' % episode)))
 
 
 def main():
@@ -317,7 +279,8 @@ def main():
             rewards = rollout(replay_buffer, image_agent, critic_net, max_rollout_length,
                               port=port, **reward_params)
         update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
-               epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size)
+               epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size,
+               num_workers=num_workers)
 
         image_agent.decay_action_std()
         replay_buffer.clear_buffer()
