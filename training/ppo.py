@@ -32,6 +32,7 @@ from training.ppo_utils.agent import PPOImageAgent
 from training.ppo_utils.critic import BirdViewCritic
 from training.ppo_utils.replay_buffer import PPOReplayBuffer
 from training.ppo_utils.helpers import rtgs, gae, _paint
+from tensorboardX import SummaryWriter
 
 GAP = 5
 N_STEP = 5
@@ -136,7 +137,8 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
 
 
 def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic, critic_criterion,
-           epoch_per_episode=5, gamma=0.99, lmbda=0.5, clip_ratio=0.05, c1=1.0, c2=0.01, batch_size=24, num_workers=0):
+           epoch_per_episode=5, gamma=0.99, lmbda=0.5, clip_ratio=0.05, c1=1.0, c2=0.01, batch_size=24, num_workers=0,
+           critic_writer=None):
     def to_tensor(x):
         return torch.tensor(x, dtype=torch.float32).to(device)
 
@@ -153,8 +155,11 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
 
     loader = torch.utils.data.DataLoader(replay_buffer, batch_size=batch_size, num_workers=num_workers,
                                          pin_memory=False, shuffle=True, drop_last=True)
+
+    running_critic_loss = 0
     for epoch in range(epoch_per_episode):
-        for i, (idxes, rgb, speed, command, birdview, old_actions, old_logprobs) in tqdm(enumerate(loader)):
+        desc = "Episode {}, epoch {}".format(episode, epoch)
+        for i, (idxes, rgb, speed, command, birdview, old_actions, old_logprobs) in tqdm(enumerate(loader), desc=desc):
             # Unpack old_states into RGB, birdview, speed and command.
             rgb = rgb.to(device).float()
             birdview = birdview.to(device).float()
@@ -169,20 +174,36 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
 
             # Evaluate state values with the critic
             state_values, _ = critic(birdview, speed, command)
-            state_values.squeeze()
+            state_values = state_values.squeeze()
 
             # PPO objective function
             surr1 = ratios * advantages[idxes]
             surr2 = torch.clamp(ratios, 1 - clip_ratio, 1 + clip_ratio) * advantages[idxes]
             objective = torch.min(surr1, surr2)
 
+            # Critic loss
+            critic_loss = critic_criterion(state_values, rewards_to_go[idxes])
+
             # Compute loss
-            loss = - objective + c1 * critic_criterion(state_values, rewards_to_go[idxes]) - c2 * dist_entropy
+            loss = - objective + c1 * critic_loss - c2 * dist_entropy
 
             # Take gradient step
             optimizer.zero_grad()
             loss.mean().backward()
             optimizer.step()
+
+            # Running loss for critic
+            pepe = critic_loss.item()
+            running_critic_loss += critic_loss.item() * rgb.size(0)
+
+        epoch_critic_loss = running_critic_loss / len(replay_buffer)
+        if critic_writer is not None:
+            if episode == 0:
+                epoch_write_number = epoch
+            else:
+                epoch_write_number = epoch_per_episode * episode + epoch
+            critic_writer.add_scalar("epoch_loss", epoch_critic_loss, epoch_write_number)
+
     # Set the new policy as the old policy
     image_agent.policy_old.load_state_dict(image_agent.model.state_dict())
 
@@ -283,6 +304,10 @@ def main():
     optimizer = torch.optim.Adam([{'params': actor_net.parameters(), 'lr': actor_lr},
                                   {'params': critic_net.parameters(), 'lr': critic_lr}])
 
+    # Setup writers for tensorboard
+    critic_writer = SummaryWriter(path / "logs/critic")
+    reward_writer = SummaryWriter(path / "logs/reward")
+
     """
      ======================
          MAIN PPO LOOP 
@@ -290,14 +315,17 @@ def main():
     """
     total_time_steps = 0
     for episode in range(max_episode):
+        episode_rewards = 0
         for i in range(rollouts_per_episode):
-            print("Episode ", episode + 1, ", Rollout ", i + 1)
+            print("Episode ", episode, ", Rollout ", i + 1)
             rewards, time_steps = rollout(replay_buffer, image_agent, critic_net, max_rollout_length,
                                           port=port, show=show, **reward_params)
             total_time_steps += time_steps
+            episode_rewards += rewards
+        reward_writer.add_scalar("episode_rewards", episode_rewards, episode)
         update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
                epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size,
-               num_workers=num_workers, c1=c1, c2=c2)
+               num_workers=num_workers, c1=c1, c2=c2, critic_writer=critic_writer)
 
         if total_time_steps % action_std_decay_frequency == 0:
             image_agent.decay_action_std()
