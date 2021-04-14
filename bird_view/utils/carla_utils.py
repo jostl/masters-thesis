@@ -416,7 +416,6 @@ class CarlaWrapper(object):
     def spawn_vehicles(self):
         SpawnActor = carla.command.SpawnActor
         SetAutoPilot = carla.command.SetAutopilot
-        FutureActor = carla.command.FutureActor
         blueprints = self._blueprints.filter('vehicle.*')
         if self.disable_two_wheels:
             blueprints = [x for x in blueprints if int(x.get_attribute('number_of_wheels')) == 4]
@@ -433,16 +432,22 @@ class CarlaWrapper(object):
             if blueprint.has_attribute('driver_id'):
                 driver_id = np.random.choice(blueprint.get_attribute('driver_id').recommended_values)
                 blueprint.set_attribute('driver_id', driver_id)
-
             spawn_point = spawn_points.pop(random.randrange(len(spawn_points)))
-            spawn_command = SpawnActor(blueprint, spawn_point).then(SetAutoPilot(FutureActor, True))
+            spawn_command = SpawnActor(blueprint, spawn_point)
             batch.append(spawn_command)
         responses = self._client.apply_batch_sync(batch, True)
         for response in responses:
             vehicle = self._world.get_actor(response.actor_id)
             self._actor_dict['vehicle'].append(vehicle)
-
         print("spawned %d vehicles" % len(self._actor_dict['vehicle']))
+        autopilot_commands = []
+        for vehicle in self._actor_dict['vehicle']:
+            if vehicle == None:
+                continue
+            autopilot_command = SetAutoPilot(vehicle.id, True)
+            autopilot_commands.append(autopilot_command)
+        responses = self._client.apply_batch_sync(autopilot_commands, True)
+        print("set autopilot to %d vehicles" % len(responses))
 
     def spawn_pedestrians(self, n_pedestrians):
         SpawnActor = carla.command.SpawnActor
