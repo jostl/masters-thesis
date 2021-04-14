@@ -31,7 +31,7 @@ from training.phase2_utils import setup_image_model
 from training.ppo_utils.agent import PPOImageAgent
 from training.ppo_utils.critic import BirdViewCritic
 from training.ppo_utils.replay_buffer import PPOReplayBuffer
-from training.ppo_utils.helpers import rtgs, gae
+from training.ppo_utils.helpers import rtgs, gae, _paint
 
 GAP = 5
 N_STEP = 5
@@ -61,7 +61,8 @@ def one_hot(x, num_digits=4, start=1):
     return y
 
 
-def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=2000, planner="new", **kwargs):
+def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=2000, planner="new", show=False,
+            **kwargs):
     progress = tqdm(range(max_rollout_length), desc='Frame')
     weather = np.random.choice(list(cu.TRAIN_WEATHERS.keys()))
     data = []
@@ -78,15 +79,14 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
         env.init(**env_params)
         env.success_dist = 5.0
         env.tick()
-        i = 0
+        time_steps = 0
         total_rewards = 0
         while not env.is_success() and not env.collided and not env.traffic_tracker.ran_light and \
                 len(data) <= max_rollout_length:
-
             state = env.get_observations()
             control, action, action_logprobs = image_agent.run_step(state)
 
-            env.apply_control(control)
+            diagnostic = env.apply_control(control)
             env.tick()
 
             rgb_img = state["rgb"].copy()
@@ -99,7 +99,7 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
             reward = env.get_reward(speed, **kwargs)
             is_terminal = env.collided or env.is_failure() or env.is_success() or env.traffic_tracker.ran_light
 
-            if i % 30 == 0:
+            if time_steps % 30 == 0:
                 env.move_spectator_to_player()
 
             data.append({
@@ -117,7 +117,9 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
             })
             total_rewards += reward
             progress.update(1)
-            i += 1
+            time_steps += 1
+            if show:
+                _paint(state, control, diagnostic, reward, image_agent.debug, env)
 
             if len(data) >= max_rollout_length:
                 break
@@ -130,11 +132,11 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
         env._world.apply_settings(env_settings)
     for datum in data:
         replay_buffer.add_data(**datum)
-    return total_rewards
+    return total_rewards, time_steps
 
 
 def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic, critic_criterion,
-           epoch_per_episode=5, gamma=0.99, lmbda=0.5, clip_ratio=0.05, batch_size=24, num_workers=0):
+           epoch_per_episode=5, gamma=0.99, lmbda=0.5, clip_ratio=0.05, c1=1.0, c2=0.01, batch_size=24, num_workers=0):
     def to_tensor(x):
         return torch.tensor(x, dtype=torch.float32).to(device)
 
@@ -172,7 +174,7 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
             surr1 = ratios * advantages[idxes]
             surr2 = torch.clamp(ratios, 1 - clip_ratio, 1 + clip_ratio) * advantages[idxes]
             loss = -torch.min(surr1, surr2) + \
-                   0.5 * critic_criterion(state_values, rewards_to_go[idxes]) - 0.01 * dist_entropy
+                   c1 * critic_criterion(state_values, rewards_to_go[idxes]) - c2 * dist_entropy
 
             # Take gradient step
             optimizer.zero_grad()
@@ -182,9 +184,8 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
     # Set the new policy as the old policy
     image_agent.policy_old.load_state_dict(image_agent.model.state_dict())
 
-    if episode in SAVE_EPISODES:
-        torch.save(image_agent.model.state_dict(),
-                   str(Path(log_dir) / ('model-%d.th' % episode)))
+    # Save model
+    torch.save(image_agent.model.state_dict(), str(Path(log_dir) / ('model-%d.th' % episode)))
 
 
 def main():
@@ -197,8 +198,9 @@ def main():
     device = str(config["SETUP"]["device"])
     batch_size = int(config["SETUP"]["batch_size"])
     num_workers = int(config["SETUP"]["num_workers"])
-    use_cv = str(config["SETUP"]["use_cv"]) == "True"
     resume = str(config["SETUP"]["resume"]) == "True"
+    computer_vision = str(config["SETUP"]["computer_vision"])
+    show = str(config["SETUP"]["show"]) == "True"
 
     # TRAINING (Hyperparameters)
     max_episode = int(config["TRAINING"]["max_episode"])
@@ -208,6 +210,8 @@ def main():
     clip_ratio = float(config["TRAINING"]["clip_ratio"])
     gamma = float(config["TRAINING"]["gamma"])
     lmbda = float(config["TRAINING"]["lambda"])
+    c1 = float(config["TRAINING"]["c1"])
+    c2 = float(config["TRAINING"]["c2"])
 
     # REWARD
     alpha = float(config["REWARD"]["alpha"])
@@ -226,7 +230,6 @@ def main():
     actor_lr = float(config["ACTOR"]["learning_rate"])
     actor_imagenet_pretrained = str(config["ACTOR"]["imagenet_pretrained"]) == True
     actor_backbone = str(config["ACTOR"]["backbone"])
-    use_trained_cv = str(config["ACTOR"]) == "True"
 
     # CRITIC
     critic_ckpt = str(config["CRITIC"]["critic_ckpt"])
@@ -234,13 +237,19 @@ def main():
     critic_backbone = str(config["CRITIC"]["backbone"])
 
     # Check if everything is legal
-    assert not resume and actor_ckpt, "Resuming training requires actor checkpoint. " \
-                                      "Actor path is empty."
+    assert computer_vision in {"None", "gt",
+                               "trained"}, "'computer_vision' must be equal to 'None','gt'(ground truth) or 'trained'," \
+                                           " found '{}'".format(computer_vision)
+    assert computer_vision != "gt" or computer_vision != "trained", "Not implemented yet lol"
 
-    assert not resume and critic_ckpt, "Resuming training requires critic checkpoint. " \
-                                       "Critic path is empty."
+    if resume:
+        assert actor_ckpt, "Resuming training requires actor checkpoint. " \
+                           "Actor path is empty."
 
-    assert use_cv != use_trained_cv, 'Cannot use ground truth and "trained" computer vision at the same time.'
+        assert critic_ckpt, "Resuming training requires critic checkpoint. " \
+                            "Critic path is empty."
+
+    # INITIALIZING
 
     replay_buffer = PPOReplayBuffer()
     reward_params = {'alpha': alpha, 'beta': beta, 'phi': phi, 'delta': delta}
@@ -259,7 +268,7 @@ def main():
                                 **image_agent_kwargs)
 
     # Setup critic network and criterion
-    critic_net = BirdViewCritic(backbone=critic_backbone, device=device)
+    critic_net = BirdViewCritic(backbone=critic_backbone, device=device, all_branch=True).to(device)
     if critic_ckpt:
         critic_net.load_state_dict(torch.load(critic_ckpt))
     critic_criterion = nn.MSELoss()
@@ -273,16 +282,19 @@ def main():
          MAIN PPO LOOP 
      ======================
     """
+    total_time_steps = 0
     for episode in range(max_episode):
         for i in range(rollouts_per_episode):
             print("Episode ", episode + 1, ", Rollout ", i + 1)
-            rewards = rollout(replay_buffer, image_agent, critic_net, max_rollout_length,
-                              port=port, **reward_params)
+            rewards, time_steps = rollout(replay_buffer, image_agent, critic_net, max_rollout_length,
+                                          port=port, show=show, **reward_params)
+            total_time_steps += time_steps
         update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
                epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size,
-               num_workers=num_workers)
+               num_workers=num_workers, c1=c1, c2=c2)
 
-        image_agent.decay_action_std()
+        if total_time_steps % action_std_decay_frequency == 0:
+            image_agent.decay_action_std()
         replay_buffer.clear_buffer()
 
 

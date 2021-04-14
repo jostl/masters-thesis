@@ -56,6 +56,7 @@ class BirdViewCritic(common.ResnetBase):
         return value_pred
 
     def evaluate(self, birdview, speed, command):
+        self.eval()
         with torch.no_grad():
             if self.all_branch:
                 state_value, _ = self.forward(birdview, speed, command)
