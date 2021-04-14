@@ -386,7 +386,6 @@ class CarlaWrapper(object):
         self.col_threshold = col_threshold
         self.collided = False
         self._collided_frame_number = -1
-        self.collided_with_actor = -1
 
         self.invaded = False
         self._invaded_frame_number = -1
@@ -563,7 +562,7 @@ class CarlaWrapper(object):
         spectator = self._world.get_spectator()
         player_transform = self._player.get_transform()
         spectator.set_transform(carla.Transform(player_transform.location + carla.Location(z=50),
-                                                carla.Rotation(pitch=-90, yaw=player_transform.rotation.yaw)))
+                                                carla.Rotation(pitch=-90)))
 
     def ready(self, ticks=50):
         self.tick()
@@ -759,7 +758,6 @@ class CarlaWrapper(object):
         # Collisions.
         self.collided = False
         self._collided_frame_number = -1
-        self.collided_with_actor = -1
 
         collision_sensor = self._world.spawn_actor(
                 self._blueprints.find('sensor.other.collision'),
@@ -791,7 +789,6 @@ class CarlaWrapper(object):
         if intensity > _self.col_threshold:
             _self.collided = True
             _self._collided_frame_number = event.frame_number
-            _self.collided_with_actor = event.other_actor
 
     @staticmethod
     def _on_invasion(weakself, event):
