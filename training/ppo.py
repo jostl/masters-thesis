@@ -83,17 +83,17 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
         total_rewards = 0
         while not env.is_success() and not env.collided and not env.traffic_tracker.ran_light and \
                 len(data) <= max_rollout_length:
-            state = env.get_observations()
-            control, action, action_logprobs = image_agent.run_step(state)
+            observations = env.get_observations()
+            control, action, action_logprobs = image_agent.run_step(observations)
 
             diagnostic = env.apply_control(control)
             env.tick()
 
-            rgb_img = state["rgb"].copy()
-            command = int(state["command"])
-            speed = np.linalg.norm(state["velocity"])
+            rgb_img = observations["rgb"].copy()
+            command = int(observations["command"])
+            speed = np.linalg.norm(observations["velocity"])
 
-            birdview_img = crop_birdview(state["birdview"], dx=-10)
+            birdview_img = crop_birdview(observations["birdview"], dx=-10)
             state_value = critic.evaluate(*critic.prepare_data(birdview_img, speed, command))
 
             reward = env.get_reward(speed, **kwargs)
@@ -119,7 +119,7 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
             progress.update(1)
             time_steps += 1
             if show:
-                _paint(state, control, diagnostic, reward, image_agent.debug, env)
+                _paint(observations, control, diagnostic, reward, image_agent.debug, env)
 
             if len(data) >= max_rollout_length:
                 break
@@ -154,12 +154,12 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
     loader = torch.utils.data.DataLoader(replay_buffer, batch_size=batch_size, num_workers=num_workers,
                                          pin_memory=False, shuffle=True, drop_last=True)
     for epoch in range(epoch_per_episode):
-        for i, (idxes, old_states, old_actions, old_logprobs, _, _) in tqdm(enumerate(loader)):
+        for i, (idxes, rgb, speed, command, birdview, old_actions, old_logprobs) in tqdm(enumerate(loader)):
             # Unpack old_states into RGB, birdview, speed and command.
-            rgb = old_states["rgb_img"].to(device).float()
-            birdview_img = old_states["birdview_img"].to(device).float()
-            speed = old_states["speed"].to(device).float()
-            command = one_hot(old_states["command"]).to(device).float()
+            rgb = rgb.to(device).float()
+            birdview = birdview.to(device).float()
+            speed = speed.to(device).float()
+            command = one_hot(command).to(device).float()
 
             # Calculate log probability of old actions on the new policy and retrieve entropy of distribution
             logprobs, dist_entropy = image_agent.evaluate(rgb, speed, command, old_actions)
@@ -168,24 +168,27 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
             ratios = torch.exp(logprobs - old_logprobs)
 
             # Evaluate state values with the critic
-            state_values = critic(birdview_img, speed, command).squeeze()
+            state_values, _ = critic(birdview, speed, command)
+            state_values.squeeze()
 
             # PPO objective function
             surr1 = ratios * advantages[idxes]
             surr2 = torch.clamp(ratios, 1 - clip_ratio, 1 + clip_ratio) * advantages[idxes]
-            loss = -torch.min(surr1, surr2) + \
-                   c1 * critic_criterion(state_values, rewards_to_go[idxes]) - c2 * dist_entropy
+            objective = torch.min(surr1, surr2)
+
+            # Compute loss
+            loss = - objective + c1 * critic_criterion(state_values, rewards_to_go[idxes]) - c2 * dist_entropy
 
             # Take gradient step
             optimizer.zero_grad()
             loss.mean().backward()
             optimizer.step()
-
     # Set the new policy as the old policy
     image_agent.policy_old.load_state_dict(image_agent.model.state_dict())
 
-    # Save model
+    # Save models
     torch.save(image_agent.model.state_dict(), str(Path(log_dir) / ('model-%d.th' % episode)))
+    torch.save(critic.state_dict(), str(Path(log_dir) / ('critic-model-%d.th' % episode)))
 
 
 def main():
@@ -250,6 +253,9 @@ def main():
                             "Critic path is empty."
 
     # INITIALIZING
+    path = Path(log_dir)
+    if not path.exists():
+        path.mkdir()
 
     replay_buffer = PPOReplayBuffer()
     reward_params = {'alpha': alpha, 'beta': beta, 'phi': phi, 'delta': delta}

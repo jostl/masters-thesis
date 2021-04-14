@@ -182,7 +182,7 @@ class PPOImageAgent(Agent):
         dist = MultivariateNormal(action_mean_view, cov_mat)
 
         # Get the log of the probability density function evaluated at each 'action' in this batch
-        action_logprob = dist.log_prob(action.squeeze().view(batch_size, n_waypoints * 2))
+        action_logprob = dist.log_prob(action.squeeze().view((batch_size, n_waypoints * 2)))
 
         # Get the entropy of the distribution
         dist_entropy = dist.entropy()

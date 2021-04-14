@@ -20,10 +20,12 @@ class PPOReplayBuffer(torch.utils.data.Dataset):
         return len(self._data)
 
     def __getitem__(self, _idx):
-        state, action, action_logprobs, reward, is_terminal = self._data[_idx]
-        state['rgb_img'] = self.rgb_transform(state['rgb_img'])
-        state['birdview_img'] = self.birdview_transform(state['birdview_img'])
-        return _idx, state, action, action_logprobs, reward, is_terminal
+        state, action, action_logprobs, _, _ = self._data[_idx]
+        rgb_img = self.rgb_transform(state['rgb_img'])
+        birdview_img = self.birdview_transform(state['birdview_img'])
+        speed = state['speed']
+        command = state['command']
+        return _idx, rgb_img, speed, command, birdview_img, action, action_logprobs
 
     def clear_buffer(self):
         self._data = []
