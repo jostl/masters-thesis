@@ -211,7 +211,7 @@ def get_episode(env, params):
                 _debug(observations, agent_debug)
 
         observations['control'] = real_control
-        processed = cu.process(observations)
+        processed = cu.process(observations, use_cv=True)
 
         data.append(processed)
 
@@ -234,7 +234,7 @@ def main(params):
 
     for i in tqdm.tqdm(range(params.n_episodes), desc='Episode'):
         print("Episode:", i)
-        with make_suite('DataCollectionTown01', port=params.port, planner=params.planner) as env:
+        with make_suite('DataCollectionTown01', port=params.port, planner=params.planner, use_cv=True) as env:
             filepath = save_dir.joinpath('%03d' % i)
 
             if filepath.exists():
@@ -255,6 +255,12 @@ def main(params):
                     txn.put(
                             ('rgb_%04d' % i).encode(),
                             np.ascontiguousarray(x['rgb']).astype(np.uint8))
+                    txn.put(
+                            ('depth_%04d' % i).encode(),
+                            np.ascontiguousarray(x['depth']).astype(np.uint8))
+                    txn.put(
+                            ('semseg_%04d' % i).encode(),
+                            np.ascontiguousarray(x['semseg']).astype(np.uint8))
                     txn.put(
                             ('birdview_%04d' % i).encode(),
                             np.ascontiguousarray(x['birdview']).astype(np.uint8))

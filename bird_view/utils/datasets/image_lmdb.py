@@ -9,7 +9,8 @@ import cv2
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-
+from perception.utils.helpers import get_segmentation_tensor
+from perception.utils.segmentation_labels import DEFAULT_CLASSES
 import math
 import random
 
@@ -71,6 +72,8 @@ class ImageDataset(Dataset):
         augment_strategy=None,
         batch_read_number=819200,
         batch_aug=1,
+        use_cv = False,
+        semantic_classes = DEFAULT_CLASSES,
     ):
         self._name_map = {}
         
@@ -79,7 +82,10 @@ class ImageDataset(Dataset):
 
         self.bird_view_transform = transforms.ToTensor()
         self.rgb_transform = transforms.ToTensor()
-        
+        self.normalize_rgb = transforms.Compose([
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
         self.rgb_shape = rgb_shape
         self.img_size = img_size
         self.crop_size = crop_size
@@ -90,7 +96,13 @@ class ImageDataset(Dataset):
         self.batch_aug = batch_aug
         
         self.gaussian_radius = gaussian_radius
-        
+
+        self.use_cv = use_cv
+        self.semantic_classes = semantic_classes
+        self.to_tensor = transforms.Compose([
+            transforms.ToTensor()
+        ])
+
         print ("augment with ", augment_strategy)
         if augment_strategy is not None and augment_strategy != 'None':
             self.augmenter = getattr(augmenter, augment_strategy)
@@ -218,7 +230,17 @@ class ImageDataset(Dataset):
             # indices[i] = center_int[1] * output_w + center_int[0]
             
         self.batch_read_number += 1
-       
+
+        if self.use_cv:
+            rgb_images = self.normalize_rgb(rgb_images)
+            semantic_image = self.to_tensor(get_segmentation_tensor(
+                np.fromstring(lmdb_txn.get(('semseg_%04d' % index).encode()), np.uint8).reshape(160, 384, 3),
+                classes=DEFAULT_CLASSES)).float()
+            depth_image = self.to_tensor(np.fromstring(
+                lmdb_txn.get(('depth_%04d' % index).encode()), np.uint8).reshape(160, 384, 1) / 255).float()
+            images = torch.cat([rgb_images, semantic_image, depth_image], dim=0)
+            return images, bird_view, np.array(locations), cmd, speed
+
         return rgb_images, bird_view, np.array(locations), cmd, speed
 
         
@@ -269,7 +291,7 @@ def _dataloader(data, batch_size, num_workers):
 def get_image(
         dataset_dir,
         batch_size=32, num_workers=0, shuffle=True, augment=None,
-        n_step=5, gap=5, batch_aug=1):
+        n_step=5, gap=5, batch_aug=1, use_cv=False):
 
     # import pdb; pdb.set_trace()
 
@@ -281,7 +303,7 @@ def get_image(
         _augment = augment if is_train else None
 
         data = ImageDataset(
-                _dataset_dir, gap=gap, n_step=n_step, augment_strategy=_augment, batch_aug=_batch_aug)
+                _dataset_dir, gap=gap, n_step=n_step, augment_strategy=_augment, batch_aug=_batch_aug, use_cv=use_cv)
         data = Wrap(data, batch_size, _samples)
         data = _dataloader(data, batch_size, _num_workers)
 

@@ -87,14 +87,21 @@ def set_sync_mode(client, sync):
     world.apply_settings(settings)
 
 
-def carla_img_to_np(carla_img):
-    carla_img.convert(ColorConverter.Raw)
-
+def carla_img_to_np(carla_img, converter='raw'):
+    assert converter == 'raw' or converter == 'log_depth', "Exptected 'converter' param to be 'raw' or 'log_depth', " \
+                                                           "got: " + str(converter)
+    if converter == 'raw':
+        carla_img.convert(ColorConverter.Raw)
+    else:
+        carla_img.convert(ColorConverter.LogarithmicDepth)
     img = np.frombuffer(carla_img.raw_data, dtype=np.dtype('uint8'))
     img = np.reshape(img, (carla_img.height, carla_img.width, 4))
     img = img[:,:,:3]
-    img = img[:,:,::-1]
 
+    if converter == 'raw':
+        img = img[:,:,::-1]
+    else:
+        img = img[:,:,0]
     return img
 
 
@@ -112,9 +119,14 @@ def get_birdview(observations):
     return birdview
 
 
-def process(observations):
+def process(observations, use_cv=False):
     result = dict()
     result['rgb'] = observations['rgb'].copy()
+
+    if use_cv:
+        result['semseg'] = observations['semseg'].copy()
+        result['depth'] = observations['depth'].copy()
+
     result['birdview'] = observations['birdview'].copy()
     result['collided'] = observations['collided']
 
@@ -342,13 +354,13 @@ class TrafficTracker(object):
 class CarlaWrapper(object):
     def __init__(
             self, town='Town01', vehicle_name=VEHICLE_NAME, port=2000, client=None,
-            col_threshold=400, big_cam=False, seed=None, respawn_peds=True, **kwargs):
-        
-        if client is None:    
+            col_threshold=400, big_cam=False, seed=None, respawn_peds=True, use_cv=False, **kwargs):
+
+        if client is None:
             self._client = carla.Client('localhost', port)
         else:
             self._client = client
-            
+
         self._client.set_timeout(30.0)
 
         set_sync_mode(self._client, False)
@@ -388,17 +400,23 @@ class CarlaWrapper(object):
         self.rgb_image = None
         self._big_cam_queue = None
         self.big_cam_image = None
-        
+
+        self.use_cv = use_cv
+
+        self._depth_queue = None
+        self.depth_image = None
+        self._semantic_queue = None
+        self.semantic_image = None
+
         self.seed = seed
 
         self._respawn_peds = respawn_peds
         self.disable_two_wheels = False
-        
+
 
     def spawn_vehicles(self):
         SpawnActor = carla.command.SpawnActor
         SetAutoPilot = carla.command.SetAutopilot
-        FutureActor = carla.command.FutureActor
         blueprints = self._blueprints.filter('vehicle.*')
         if self.disable_two_wheels:
             blueprints = [x for x in blueprints if int(x.get_attribute('number_of_wheels')) == 4]
@@ -415,16 +433,22 @@ class CarlaWrapper(object):
             if blueprint.has_attribute('driver_id'):
                 driver_id = np.random.choice(blueprint.get_attribute('driver_id').recommended_values)
                 blueprint.set_attribute('driver_id', driver_id)
-
             spawn_point = spawn_points.pop(random.randrange(len(spawn_points)))
-            spawn_command = SpawnActor(blueprint, spawn_point).then(SetAutoPilot(FutureActor, True))
+            spawn_command = SpawnActor(blueprint, spawn_point)
             batch.append(spawn_command)
         responses = self._client.apply_batch_sync(batch, True)
         for response in responses:
             vehicle = self._world.get_actor(response.actor_id)
             self._actor_dict['vehicle'].append(vehicle)
-
         print("spawned %d vehicles" % len(self._actor_dict['vehicle']))
+        autopilot_commands = []
+        for vehicle in self._actor_dict['vehicle']:
+            if vehicle == None:
+                continue
+            autopilot_command = SetAutoPilot(vehicle.id, True)
+            autopilot_commands.append(autopilot_command)
+        responses = self._client.apply_batch_sync(autopilot_commands, True)
+        print("set autopilot to %d vehicles" % len(responses))
 
     def spawn_pedestrians(self, n_pedestrians):
         SpawnActor = carla.command.SpawnActor
@@ -577,7 +601,14 @@ class CarlaWrapper(object):
         # Put here for speed (get() busy polls queue).
         while self.rgb_image is None or self._rgb_queue.qsize() > 0:
             self.rgb_image = self._rgb_queue.get()
-        
+
+        if self.use_cv:
+            while self.depth_image is None or self._depth_queue.qsize() > 0:
+                self.depth_image = self._depth_queue.get()
+
+            while self.semantic_image is None or self._semantic_queue.qsize() > 0:
+                self.semantic_image = self._semantic_queue.get()
+
         if self._big_cam:
             while self.big_cam_image is None or self._big_cam_queue.qsize() > 0:
                 self.big_cam_image = self._big_cam_queue.get()
@@ -592,6 +623,11 @@ class CarlaWrapper(object):
             'rgb': carla_img_to_np(self.rgb_image),
             'birdview': get_birdview(result),
             'collided': self.collided
+            })
+        if self.use_cv:
+            result.update({
+                'semseg': carla_img_to_np(self.semantic_image),
+                'depth': carla_img_to_np(self.depth_image, converter='log_depth')
             })
 
         if self._big_cam:
@@ -645,15 +681,21 @@ class CarlaWrapper(object):
         if self._rgb_queue:
             with self._rgb_queue.mutex:
                 self._rgb_queue.queue.clear()
-        
+        if self._semantic_queue:
+            with self._semantic_queue.mutex:
+                self._semantic_queue.queue.clear()
+        if self._depth_queue:
+            with self._depth_queue.mutex:
+                self._depth_queue.queue.clear()
+
         if self._big_cam_queue:
             with self._big_cam_queue.mutex:
                 self._big_cam_queue.queue.clear()
-    
+
     @property
     def pedestrians(self):
         return self._actor_dict.get('pedestrian', [])
-        
+
     @property
     def ped_controllers(self):
         return self._actor_dict.get('ped_controller', [])
@@ -687,12 +729,33 @@ class CarlaWrapper(object):
             rgb_camera_bp,
             carla.Transform(carla.Location(x=2.0, z=1.4), carla.Rotation(pitch=0)),
             attach_to=self._player)
-
         rgb_camera.listen(self._rgb_queue.put)
         self._actor_dict['sensor'].append(rgb_camera)
+        if self.use_cv:
+            self._depth_queue = queue.Queue()
+            self._semantic_queue = queue.Queue()
 
+            depth_camera_bp = self._blueprints.find('sensor.camera.depth')
+            depth_camera_bp.set_attribute('image_size_x', '384')
+            depth_camera_bp.set_attribute('image_size_y', '160')
+            depth_camera_bp.set_attribute('fov', '90')
+            depth_camera = self._world.spawn_actor(
+                depth_camera_bp,
+                carla.Transform(carla.Location(x=2.0, z=1.4), carla.Rotation(pitch=0)),
+                attach_to=self._player)
+            depth_camera.listen(self._depth_queue.put)
+            self._actor_dict['sensor'].append(depth_camera)
 
-
+            semantic_camera_bp = self._blueprints.find('sensor.camera.semantic_segmentation')
+            semantic_camera_bp.set_attribute('image_size_x', '384')
+            semantic_camera_bp.set_attribute('image_size_y', '160')
+            semantic_camera_bp.set_attribute('fov', '90')
+            semantic_camera = self._world.spawn_actor(
+                semantic_camera_bp,
+                carla.Transform(carla.Location(x=2.0, z=1.4), carla.Rotation(pitch=0)),
+                attach_to=self._player)
+            semantic_camera.listen(self._semantic_queue.put)
+            self._actor_dict['sensor'].append(semantic_camera)
         # Collisions.
         self.collided = False
         self._collided_frame_number = -1
