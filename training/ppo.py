@@ -208,8 +208,8 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
     image_agent.policy_old.load_state_dict(image_agent.model.state_dict())
 
     # Save models
-    torch.save(image_agent.model.state_dict(), str(Path(log_dir) / ('model-%d.th' % episode)))
-    torch.save(critic.state_dict(), str(Path(log_dir) / ('critic-model-%d.th' % episode)))
+    torch.save(image_agent.model.state_dict(), str(Path(log_dir) / ('actor-%d.th' % episode)))
+    torch.save(critic.state_dict(), str(Path(log_dir) / ('critic-%d.th' % episode)))
 
 
 def main():
@@ -222,7 +222,7 @@ def main():
     device = str(config["SETUP"]["device"])
     batch_size = int(config["SETUP"]["batch_size"])
     num_workers = int(config["SETUP"]["num_workers"])
-    resume = str(config["SETUP"]["resume"]) == "True"
+    resume_episode = int(config["SETUP"]["resume_episode"])
     computer_vision = str(config["SETUP"]["computer_vision"])
     show = str(config["SETUP"]["show"]) == "True"
 
@@ -266,7 +266,7 @@ def main():
                                            " found '{}'".format(computer_vision)
     assert computer_vision != "gt" or computer_vision != "trained", "Not implemented yet lol"
 
-    if resume:
+    if resume_episode > 0:
         assert actor_ckpt, "Resuming training requires actor checkpoint. " \
                            "Actor path is empty."
 
@@ -314,7 +314,7 @@ def main():
      ======================
     """
     total_time_steps = 0
-    for episode in range(max_episode):
+    for episode in range(resume_episode, max_episode):
         episode_rewards = 0
         for i in range(rollouts_per_episode):
             print("Episode ", episode, ", Rollout ", i + 1)
