@@ -31,7 +31,7 @@ from training.phase2_utils import setup_image_model
 from training.ppo_utils.agent import PPOImageAgent
 from training.ppo_utils.critic import BirdViewCritic
 from training.ppo_utils.replay_buffer import PPOReplayBuffer
-from training.ppo_utils.helpers import rtgs, gae, _paint
+from training.ppo_utils.helpers import rtgs, gae, _paint, get_reward
 from tensorboardX import SummaryWriter
 
 GAP = 5
@@ -97,7 +97,7 @@ def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=20
             birdview_img = crop_birdview(observations["birdview"], dx=-10)
             state_value = critic.evaluate(*critic.prepare_data(birdview_img, speed, command))
 
-            reward = env.get_reward(speed, **kwargs)
+            reward = get_reward(env, speed, **kwargs)
             is_terminal = env.collided or env.is_failure() or env.is_success() or env.traffic_tracker.ran_light
 
             if time_steps % 30 == 0:
@@ -193,7 +193,6 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
             optimizer.step()
 
             # Running loss for critic
-            pepe = critic_loss.item()
             running_critic_loss += critic_loss.item() * rgb.size(0)
 
         epoch_critic_loss = running_critic_loss / len(replay_buffer)
@@ -264,7 +263,7 @@ def main():
     assert computer_vision in {"None", "gt",
                                "trained"}, "'computer_vision' must be equal to 'None','gt'(ground truth) or 'trained'," \
                                            " found '{}'".format(computer_vision)
-    assert computer_vision != "gt" or computer_vision != "trained", "Not implemented yet lol"
+    assert computer_vision != "gt" and computer_vision != "trained", "Not implemented yet lol"
 
     if resume_episode > 0:
         assert actor_ckpt, "Resuming training requires actor checkpoint. " \

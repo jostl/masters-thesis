@@ -4,6 +4,7 @@ import numpy as np
 import bird_view.utils.bz_utils as bzu
 import bird_view.utils.carla_utils as cu
 from bird_view.models.common import crop_birdview
+from benchmark.goal_suite import PointGoalSuite
 
 
 def rtgs(rewards, terminals, normalize=False):
@@ -38,6 +39,26 @@ def gae(rewards, terminals, values, gamma, lmbda, normalize=False):
     if normalize:
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-7)
     return advantages
+
+
+def get_reward(goal_suite: PointGoalSuite, speed, alpha=1, beta=1, phi=250, delta=250):
+    # Reward function from Affordance-based Reinforcement Learning for Urban Driving
+    # https://arxiv.org/pdf/2101.05970.pdf
+    def infraction_penalty():
+        if goal_suite.collided or goal_suite.traffic_tracker.ran_light:
+            return -phi * speed - delta
+        return 0
+
+    def distance_penalty():
+        next_waypoint_location = goal_suite._next  # Get the location of the next waypoint
+        player_location = goal_suite._player.get_location()
+        distance = player_location.distance(next_waypoint_location)  # Get distance between actor and next waypoint
+        return -beta * distance
+
+    def speed_reward():
+        return alpha * speed
+
+    return speed_reward() + distance_penalty() + infraction_penalty()
 
 
 def _paint(observations, control, diagnostic, reward, debug, env):
