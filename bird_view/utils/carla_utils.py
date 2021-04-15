@@ -730,7 +730,6 @@ class CarlaWrapper(object):
             attach_to=self._player)
         rgb_camera.listen(self._rgb_queue.put)
         self._actor_dict['sensor'].append(rgb_camera)
-
         if self.use_cv:
             self._depth_queue = queue.Queue()
             self._semantic_queue = queue.Queue()
@@ -756,7 +755,6 @@ class CarlaWrapper(object):
                 attach_to=self._player)
             semantic_camera.listen(self._semantic_queue.put)
             self._actor_dict['sensor'].append(semantic_camera)
-
         # Collisions.
         self.collided = False
         self._collided_frame_number = -1
@@ -788,7 +786,6 @@ class CarlaWrapper(object):
 
         impulse = event.normal_impulse
         intensity = np.linalg.norm([impulse.x, impulse.y, impulse.z])
-
         if intensity > _self.col_threshold:
             _self.collided = True
             _self._collided_frame_number = event.frame_number
