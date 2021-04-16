@@ -38,8 +38,8 @@ GAP = 5
 N_STEP = 5
 PIXELS_PER_METER = 5
 CROP_SIZE = 192
-SAVE_EPOCHS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 512, 768, 1000]
-
+#SAVE_EPOCHS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 512, 768, 1000]
+SAVE_EPOCHS = list(range(1000))
 
 class CoordConverter():
     def __init__(self, w=384, h=160, fov=90, world_y=1.4, fixed_offset=4.0, device='cuda'):
@@ -247,8 +247,8 @@ def train(config):
     optim = torch.optim.Adam(net.parameters(), lr=config['optimizer_args']['lr'])
 
     for epoch in tqdm.tqdm(range(config['max_epoch'] + 1), desc='Epoch'):
-        train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0)
-        train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0)
+        train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0, display=True)
+        train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0, display=True)
 
         if epoch in SAVE_EPOCHS:
             torch.save(

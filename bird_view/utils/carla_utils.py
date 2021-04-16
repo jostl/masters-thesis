@@ -78,6 +78,7 @@ def is_within_distance_ahead(target_location, current_location, orientation, max
 
 
 def set_sync_mode(client, sync):
+    print("Setting sync mode to", sync)
     world = client.get_world()
 
     settings = world.get_settings()
@@ -574,6 +575,10 @@ class CarlaWrapper(object):
 
         with self._rgb_queue.mutex:
             self._rgb_queue.queue.clear()
+        with self._semantic_queue.mutex:
+            self._semantic_queue.queue.clear()
+        with self._depth_queue.mutex:
+            self._depth_queue.queue.clear()
 
         self._time_start = time.time()
         self._tick = 0
