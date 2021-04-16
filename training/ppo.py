@@ -156,9 +156,10 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
     loader = torch.utils.data.DataLoader(replay_buffer, batch_size=batch_size, num_workers=num_workers,
                                          pin_memory=False, shuffle=True, drop_last=True)
 
-    running_critic_loss = 0
+    print("Training on {} examples".format(len(replay_buffer)))
     for epoch in range(epoch_per_episode):
         desc = "Episode {}, epoch {}".format(episode, epoch)
+        running_critic_loss = 0
         for i, (idxes, rgb, speed, command, birdview, old_actions, old_logprobs) in tqdm(enumerate(loader), desc=desc):
             # Unpack old_states into RGB, birdview, speed and command.
             rgb = rgb.to(device).float()
@@ -266,6 +267,7 @@ def main():
     assert computer_vision != "gt" and computer_vision != "trained", "Not implemented yet lol"
 
     if resume_episode > 0:
+
         assert actor_ckpt, "Resuming training requires actor checkpoint. " \
                            "Actor path is empty."
 
@@ -279,7 +281,8 @@ def main():
 
     replay_buffer = PPOReplayBuffer()
     reward_params = {'alpha': alpha, 'beta': beta, 'phi': phi, 'delta': delta}
-
+    if resume_episode > 0:
+        action_std = torch.load(Path(log_dir) / "action_std{}".format(resume_episode))
     # Setup actor networks
     actor_net = setup_image_model(backbone=actor_backbone, image_ckpt=actor_ckpt, device=device,
                                   imagenet_pretrained=actor_imagenet_pretrained, all_branch=True)
@@ -316,7 +319,7 @@ def main():
     for episode in range(resume_episode, max_episode):
         episode_rewards = 0
         for i in range(rollouts_per_episode):
-            print("Episode ", episode, ", Rollout ", i + 1)
+            print("Episode", episode, ", Rollout ", i)
             rewards, time_steps = rollout(replay_buffer, image_agent, critic_net, max_rollout_length,
                                           port=port, show=show, **reward_params)
             total_time_steps += time_steps
@@ -325,7 +328,7 @@ def main():
         update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
                epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size,
                num_workers=num_workers, c1=c1, c2=c2, critic_writer=critic_writer)
-
+        torch.save(image_agent.action_std, path / "action_std{}".format(episode))
         if total_time_steps % action_std_decay_frequency == 0:
             image_agent.decay_action_std()
         replay_buffer.clear_buffer()
