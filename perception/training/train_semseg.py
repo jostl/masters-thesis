@@ -17,7 +17,7 @@ from perception.utils.visualization import display_images_horizontally, get_rgb_
 
 
 def create_dataloaders(path, validation_set_size, batch_size=32, semantic_classes=DEFAULT_CLASSES,
-                       max_n_instances=None, augment_strategy=None):
+                       max_n_instances=None, augment_strategy=None, num_workers=0):
 
     dataset = SegmentationDataset(root_folder=path, semantic_classes=semantic_classes, max_n_instances=max_n_instances,
                                augment_strategy=augment_strategy)
@@ -25,8 +25,8 @@ def create_dataloaders(path, validation_set_size, batch_size=32, semantic_classe
     validation_size = len(dataset) - train_size
     train_dataset, validation_dataset = random_split(dataset, [train_size, validation_size])
 
-    dataloaders = {"train": DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0),
-                   "val": DataLoader(validation_dataset, batch_size=batch_size, shuffle=True, num_workers=0)}
+    dataloaders = {"train": DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers),
+                   "val": DataLoader(validation_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)}
     return dataloaders
 
 
@@ -165,14 +165,13 @@ def train_model(model, dataloaders, criterion, optimizer, n_epochs, model_save_p
 
 
 def main():
-    random.seed(73)
 
-    model_name = "fcn-r101-pretrained"
+    model_name = "test_batch_aug_rng9"
     model_save_path = Path("training_logs/perception") / model_name
 
     validation_set_size = 0.2
-    max_n_instances = None
-    batch_size = 16
+    max_n_instances = 10
+    batch_size = 2
     semantic_classes = DEFAULT_CLASSES
     augment_strategy = "super_hard"
     path = "data/perception/test1"
@@ -181,19 +180,19 @@ def main():
     dataloaders = create_dataloaders(path=path, validation_set_size=validation_set_size,
                                                              semantic_classes=semantic_classes,
                                                              batch_size=batch_size, max_n_instances=max_n_instances,
-                                                             augment_strategy=augment_strategy)
+                                                             augment_strategy=augment_strategy, num_workers=4)
 
     save_model_weights = True
-    display_img_after_epoch = True
-    n_epochs = 5
+    display_img_after_epoch = False
+    n_epochs = 3
 
     use_class_weights = False
     # weight any class how you'd like here - we dont need to normalize these as long as reduction="mean" in criterion
     weights = [1., 1., 1., 1., 1., 1., 1., 1., 1.]
-    backbone = "resnet101"
+    backbone = "resnet50"
 
     #model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone=backbone, pretrained=True)
-    model = createFCN(outputchannels=len(DEFAULT_CLASSES) + 1, backbone=backbone, pretrained=True)
+    model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone=backbone, pretrained=True)
     criterion = torch.nn.CrossEntropyLoss(weight=weights if use_class_weights else None)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 

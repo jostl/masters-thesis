@@ -2,6 +2,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
@@ -143,7 +144,8 @@ class SegmentationDataset(Dataset):
 class DepthDataset(Dataset):
     """Dataset of folder with rgb and depth subfolders"""
 
-    def __init__(self, root_folder: str, transform=None, max_n_instances=None, augment_strategy=None):
+    def __init__(self, root_folder: str, transform=None, max_n_instances=None, augment_strategy=None,
+                 use_transform=None):
         self.root_folder = Path(root_folder)
         self.transform = transform
 
@@ -171,12 +173,21 @@ class DepthDataset(Dataset):
             self.augmenter = None
         self.batch_read_number = 819200
 
-        self.to_tensor = transforms.Compose([
-                transforms.ToTensor()
-            ])
-        self.to_tensor_and_normalize = transforms.Compose([
+        midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
+
+        if use_transform is None:
+            self.transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ])
+        elif use_transform == "midas_small":
+            self.transform = midas_transforms.small_transform
+        else:
+            print("DepthDataset: Using big transform")
+            self.transform = midas_transforms.default_transform
+
+        self.to_tensor = transforms.Compose([
+                transforms.ToTensor()
             ])
 
         # TODO bruk midas sine egne transforms - de reshaper til 384 x 384
@@ -196,9 +207,9 @@ class DepthDataset(Dataset):
 
         rgb_raw = rgb_input.transpose(2, 0, 1)
 
-        rgb_input = self.to_tensor_and_normalize(rgb_input)
-        rgb_target = self.to_tensor_and_normalize(rgb_target)
-        depth_img = self.to_tensor([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)])
+        rgb_input = self.transform(rgb_input)
+        rgb_target = self.transform(rgb_target)
+        depth_img = (np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255)
 
         self.batch_read_number += 1
         return rgb_input, rgb_target, depth_img, rgb_raw

@@ -104,7 +104,7 @@ class PointGoalSuite(BaseSuite):
     def is_success(self):
         location = self._player.get_location()
         distance = location.distance(self._target_pose.location)
-        
+
         return distance <= self.success_dist
 
     def apply_control(self, control):
