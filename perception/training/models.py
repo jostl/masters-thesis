@@ -53,6 +53,16 @@ def createFCN(outputchannels=1, backbone="resnet50", pretrained=True):
 
     return model
 
+def createUNet():
+    from perception.unet.unet_model import UNet
+    model = UNet(n_channels=3, n_classes=1, bilinear=True)
+    return model
+
+def createUNetResNet():
+    import segmentation_models_pytorch as smp
+    model = smp.Unet(encoder_name="resnet34", encoder_weights="imagenet", in_channels=3, classes=1,
+                     activation="sigmoid")
+    return model
 
 def createMidas(use_large_model=True):
 

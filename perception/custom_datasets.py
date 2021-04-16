@@ -207,9 +207,9 @@ class DepthDataset(Dataset):
 
         rgb_raw = rgb_input.transpose(2, 0, 1)
 
-        rgb_input = self.transform(rgb_input).squeeze()
-        rgb_target = self.transform(rgb_target).squeeze()
-        depth_img = np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]).squeeze()
+        rgb_input = self.transform(rgb_input)
+        rgb_target = self.transform(rgb_target)
+        depth_img = (np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255)
 
         self.batch_read_number += 1
         return rgb_input, rgb_target, depth_img, rgb_raw
