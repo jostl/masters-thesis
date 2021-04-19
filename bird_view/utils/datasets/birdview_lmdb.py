@@ -241,7 +241,6 @@ class Wrap(Dataset):
         return self.batch_size * self.samples
 
     def __getitem__(self, i):
-        print("getting item rng:", np.random.randint(len(self.data)))
         return self.data[np.random.randint(len(self.data))]
 
 
