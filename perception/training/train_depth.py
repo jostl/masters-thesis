@@ -17,11 +17,11 @@ from perception.custom_datasets import DepthDataset
 from perception.training.models import createUNet, createUNetResNet
 from perception.utils.visualization import display_images_horizontally
 
-#ssim_loss = SSIM(channel=1, nonnegative_ssim=True)
-
 
 def depth_loss_function(y_pred, y_true, theta=0.1, maxDepthVal=1):
     # from https://github.com/ialhashim/DenseDepth/blob/ed044069eb99fa06dd4af415d862b3b5cbfab283/loss.py
+    # and their paper https://arxiv.org/pdf/1812.11941.pdf
+    # with modifications for pytorch - using libraries pytorch_msssim and kornia
 
     # Point-wise depth
     l_depth = torch.mean(torch.abs(y_pred - y_true), dim=-1)
@@ -209,7 +209,7 @@ def main():
     #model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone=backbone, pretrained=True)
     #model = createUNet()
     model = createUNetResNet()
-    #criterion = torch.nn.MSELoss()  # TODO loss
+    #criterion = torch.nn.MSELoss()
     criterion = depth_loss_function
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
