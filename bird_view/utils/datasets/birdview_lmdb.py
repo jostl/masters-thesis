@@ -241,13 +241,18 @@ class Wrap(Dataset):
         return self.batch_size * self.samples
 
     def __getitem__(self, i):
+        print("getting item rng:", np.random.randint(len(self.data)))
         return self.data[np.random.randint(len(self.data))]
+
+
+def worker_init_fn(worker_id):
+    np.random.seed(np.random.get_state()[1][0] + worker_id)
 
 
 def _dataloader(data, batch_size, num_workers):
     return DataLoader(
             data, batch_size=batch_size, num_workers=num_workers,
-            shuffle=True, drop_last=True, pin_memory=True)
+            shuffle=True, drop_last=True, pin_memory=True, worker_init_fn=worker_init_fn)
 
 
 def get_birdview(
