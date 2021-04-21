@@ -19,6 +19,8 @@ except IndexError as e:
 from configparser import ConfigParser
 from pathlib import Path
 
+import carla
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -62,77 +64,80 @@ def one_hot(x, num_digits=4, start=1):
     return y
 
 
-def rollout(replay_buffer, image_agent, critic, max_rollout_length=4000, port=2000, planner="new", show=False,
+def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000, rollouts_per_episode=5, port=2000,
+            planner="new", show=False,
             **kwargs):
-    progress = tqdm(range(max_rollout_length), desc='Frame')
-    weather = np.random.choice(list(cu.TRAIN_WEATHERS.keys()))
-    data = []
+    progress = tqdm(range(max_rollout_length * rollouts_per_episode), desc='Frame')
+    data = [[] for _ in range(rollouts_per_episode)]
     with make_suite('NoCrashTown01-v1', port=port, planner=planner) as env:
-        start, target = env.pose_tasks[np.random.randint(len(env.pose_tasks))]
-        env_params = {
-            'weather': weather,
-            'start': start,
-            'target': target,
-            'n_pedestrians': random.randint(100, 250),
-            'n_vehicles': random.randint(60, 120),
-        }
+        for i in range(rollouts_per_episode):
+            print("Episode", episode, ", rollout", i)
+            start, target = env.pose_tasks[np.random.randint(len(env.pose_tasks))]
+            env_params = {
+                'weather': np.random.choice(list(cu.TRAIN_WEATHERS.keys())),
+                'start': start,
+                'target': target,
+                'n_pedestrians': random.randint(100, 250),
+                'n_vehicles': random.randint(60, 120),
+            }
 
-        env.init(**env_params)
-        env.success_dist = 5.0
-        env.tick()
-        time_steps = 0
-        total_rewards = 0
-        while not env.is_success() and not env.collided and not env.traffic_tracker.ran_light and \
-                len(data) <= max_rollout_length:
-            observations = env.get_observations()
-            control, action, action_logprobs = image_agent.run_step(observations)
-
-            diagnostic = env.apply_control(control)
+            env.init(**env_params)
+            env.success_dist = 5.0
             env.tick()
+            time_steps = 0
+            total_rewards = 0
+            while not env.is_success() and not env.collided and not env.traffic_tracker.ran_light and \
+                    len(data[i]) <= max_rollout_length:
+                observations = env.get_observations()
+                control, action, action_logprobs = image_agent.run_step(observations)
 
-            rgb_img = observations["rgb"].copy()
-            command = int(observations["command"])
-            speed = np.linalg.norm(observations["velocity"])
+                diagnostic = env.apply_control(control)
+                env.tick()
 
-            birdview_img = crop_birdview(observations["birdview"], dx=-10)
-            state_value = critic.evaluate(*critic.prepare_data(birdview_img, speed, command))
+                rgb_img = observations["rgb"].copy()
+                command = int(observations["command"])
+                speed = np.linalg.norm(observations["velocity"])
 
-            reward = get_reward(env, speed, **kwargs)
-            is_terminal = env.collided or env.is_failure() or env.is_success() or env.traffic_tracker.ran_light
+                birdview_img = crop_birdview(observations["birdview"], dx=-10)
+                state_value = critic.evaluate(*critic.prepare_data(birdview_img, speed, command))
 
-            if time_steps % 30 == 0:
-                env.move_spectator_to_player()
+                reward = get_reward(env, speed, **kwargs)
+                is_terminal = env.collided or env.is_failure() or env.is_success() or env.traffic_tracker.ran_light
 
-            data.append({
-                'state': {
-                    'rgb_img': rgb_img,
-                    'command': command,
-                    'speed': speed,
-                    'birdview_img': birdview_img,
-                    'state_value': state_value
-                },
-                'action': action,
-                'action_logprobs': action_logprobs,
-                'reward': reward,
-                'is_terminal': is_terminal
-            })
-            total_rewards += reward
-            progress.update(1)
-            time_steps += 1
-            if show:
-                _paint(observations, control, diagnostic, reward, image_agent.debug, env)
+                if time_steps % 30 == 0:
+                    env.move_spectator_to_player()
 
-            if len(data) >= max_rollout_length:
-                break
+                data[i].append({
+                    'state': {
+                        'rgb_img': rgb_img,
+                        'command': command,
+                        'speed': speed,
+                        'birdview_img': birdview_img,
+                        'state_value': state_value
+                    },
+                    'action': action,
+                    'action_logprobs': action_logprobs,
+                    'reward': reward,
+                    'is_terminal': is_terminal
+                })
+                total_rewards += reward
+                progress.update(1)
+                time_steps += 1
+                if show:
+                    _paint(observations, control, diagnostic, reward, image_agent.debug, env)
 
-        print("Collided: ", env.collided)
-        print("Success: ", env.is_success())
+                if len(data) >= max_rollout_length:
+                    break
 
+            print("Collided: ", env.collided)
+            print("Success: ", env.is_success())
+            env.clean_up()
         env_settings = env._world.get_settings()
         env_settings.no_rendering_mode = True
         env._world.apply_settings(env_settings)
-    for datum in data:
-        replay_buffer.add_data(**datum)
+    for rollout_data in data:
+        for datum in rollout_data:
+            replay_buffer.add_data(**datum)
     return total_rewards, time_steps
 
 
@@ -156,8 +161,14 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
     loader = torch.utils.data.DataLoader(replay_buffer, batch_size=batch_size, num_workers=num_workers,
                                          pin_memory=False, shuffle=True, drop_last=True)
 
+    # Connecting to server to prevent timout
+    #client = carla.Client("localhost", 2000)
+    #client.set_timeout(30)
+    #cu.set_sync_mode(client, False)
+    #world = client.load_world("town01")
     print("Training on {} examples".format(len(replay_buffer)))
     for epoch in range(epoch_per_episode):
+        #world.wait_for_tick()
         desc = "Episode {}, epoch {}".format(episode, epoch)
         running_critic_loss = 0
         for i, (idxes, rgb, speed, command, birdview, old_actions, old_logprobs) in tqdm(enumerate(loader), desc=desc):
@@ -203,6 +214,7 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
             else:
                 epoch_write_number = epoch_per_episode * episode + epoch
             critic_writer.add_scalar("epoch_loss", epoch_critic_loss, epoch_write_number)
+    #cu.set_sync_mode(client, False)
 
     # Set the new policy as the old policy
     image_agent.policy_old.load_state_dict(image_agent.model.state_dict())
@@ -267,7 +279,6 @@ def main():
     assert computer_vision != "gt" and computer_vision != "trained", "Not implemented yet lol"
 
     if resume_episode > 0:
-
         assert actor_ckpt, "Resuming training requires actor checkpoint. " \
                            "Actor path is empty."
 
@@ -283,6 +294,7 @@ def main():
     reward_params = {'alpha': alpha, 'beta': beta, 'phi': phi, 'delta': delta}
     if resume_episode > 0:
         action_std = torch.load(Path(log_dir) / "action_std{}".format(resume_episode))
+        resume_episode += 1
     # Setup actor networks
     actor_net = setup_image_model(backbone=actor_backbone, image_ckpt=actor_ckpt, device=device,
                                   imagenet_pretrained=actor_imagenet_pretrained, all_branch=True)
@@ -318,12 +330,11 @@ def main():
     total_time_steps = 0
     for episode in range(resume_episode, max_episode):
         episode_rewards = 0
-        for i in range(rollouts_per_episode):
-            print("Episode", episode, ", Rollout ", i)
-            rewards, time_steps = rollout(replay_buffer, image_agent, critic_net, max_rollout_length,
-                                          port=port, show=show, **reward_params)
-            total_time_steps += time_steps
-            episode_rewards += rewards
+        rewards, time_steps = rollout(replay_buffer, image_agent, critic_net, episode, max_rollout_length,
+                                      rollouts_per_episode=rollouts_per_episode,
+                                      port=port, show=show, **reward_params)
+        total_time_steps += time_steps
+        episode_rewards += rewards
         reward_writer.add_scalar("episode_rewards", episode_rewards, episode)
         update(log_dir, replay_buffer, image_agent, optimizer, device, episode, critic_net, critic_criterion,
                epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size,
