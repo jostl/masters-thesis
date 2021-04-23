@@ -64,6 +64,14 @@ def createUNetResNet():
                      activation="sigmoid")
     return model
 
+
+def createUNetResNetSemSeg(n_classes):
+    import segmentation_models_pytorch as smp
+    model = smp.Unet(encoder_name="resnet50", encoder_weights="imagenet", in_channels=3, classes=n_classes,
+                     activation="softmax2d")
+    return model
+
+
 def createMidas(use_large_model=True):
 
     if use_large_model:
