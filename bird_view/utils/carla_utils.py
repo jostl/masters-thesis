@@ -57,7 +57,7 @@ COLORS = [
 
 
 TOWNS = ['Town01', 'Town02', 'Town03', 'Town04']
-VEHICLE_NAME = 'vehicle.audi.tt'
+VEHICLE_NAME = 'vehicle.mustang.mustang'
 
 def is_within_distance_ahead(target_location, current_location, orientation, max_distance, degree=60):
     u = np.array([
@@ -78,6 +78,7 @@ def is_within_distance_ahead(target_location, current_location, orientation, max
 
 
 def set_sync_mode(client, sync):
+    print("Setting sync mode to", sync)
     world = client.get_world()
 
     settings = world.get_settings()
@@ -562,7 +563,7 @@ class CarlaWrapper(object):
         spectator = self._world.get_spectator()
         player_transform = self._player.get_transform()
         spectator.set_transform(carla.Transform(player_transform.location + carla.Location(z=50),
-                                                carla.Rotation(pitch=-90)))
+                                                carla.Rotation(pitch=-90, yaw=-90)))
 
     def ready(self, ticks=50):
         self.tick()
@@ -579,6 +580,10 @@ class CarlaWrapper(object):
 
         with self._rgb_queue.mutex:
             self._rgb_queue.queue.clear()
+        with self._semantic_queue.mutex:
+            self._semantic_queue.queue.clear()
+        with self._depth_queue.mutex:
+            self._depth_queue.queue.clear()
 
         self._time_start = time.time()
         self._tick = 0
