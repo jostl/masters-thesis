@@ -30,14 +30,13 @@ from perception.vehicle_spawner import VehicleSpawner
 from utils.carla_utils import PRESET_WEATHERS
 
 # We want to get a deterministic output
-random.seed(4)
 
 FPS = 10
 TIMEOUT = 2
-SENSOR_TICK = 30.0  # Seconds between each sensor tick
+SENSOR_TICK = 90  # Seconds between each sensor tick
 
 TRAINING_WEATHERS = [1, 3, 6, 8]
-TEST_WEATHERS = [10, 14]
+TEST_WEATHERS = [4, 10, 14]
 ALL_WEATHERS = TRAINING_WEATHERS + TEST_WEATHERS
 
 
@@ -184,6 +183,7 @@ def spawn_pedestrians(client, world, n_pedestrians):
 weather_names = {
     1: 'clear_noon',
     3: 'wet_noon',
+    4: 'wet_cloudy_noon',
     6: 'hardrain_noon',
     8: 'clear_sunset',
     10: "after_rain_sunset",
@@ -201,13 +201,12 @@ def main():
     traffic_manager.set_global_distance_to_leading_vehicle(2.0)
     traffic_manager.global_percentage_speed_difference(25.0)
 
-    folder_name = "train50k"
+    folder_name = "test1_new"
 
-    n_vehicles = 100
-    n_pedestrians = 250
-    total_images = 50000
+    n_vehicles = 53
+    n_pedestrians = 65
+    total_images = 2200
     n_images_per_weather = total_images // len(weathers)
-    n_images_per_vehicle_per_weather = n_images_per_weather // n_vehicles
 
     print(f"Loading {town}")
     client.load_world(town)
@@ -216,7 +215,7 @@ def main():
         no_rendering_mode=False,
         synchronous_mode=True,
         fixed_delta_seconds=1 / FPS))
-
+    
     for weather in tqdm.tqdm(weathers):
         weather_name = weather_names[weather]
         progress = tqdm.tqdm(range(n_images_per_weather), desc=weather_name)
@@ -234,7 +233,10 @@ def main():
 
         all_sensors: List[carla.Sensor] = []
         vehicle_sensor_queues: Dict[int, Dict[str, Tuple[Queue, carla.Sensor]]] = {}
-        for vehicle_id in vehicles_list:
+        import random
+        idxes = random.sample(range(n_vehicles), 30)
+        for idx in idxes:
+            vehicle_id = vehicles_list[idx]
             vehicle = world.get_actor(vehicle_id)
             sensors = spawn_sensors(world, vehicle)
 
@@ -248,9 +250,11 @@ def main():
 
         while frame < start_frame + FPS * 5:
             frame = world.tick()
+        n_images_per_vehicle_per_weather = n_images_per_weather // 30
 
         for i in range(0, n_images_per_vehicle_per_weather):
-            frame = world.tick()
+            for i in range(FPS * 5):
+                frame = world.tick()
             # print(f"Tick ({frame})")
 
             for vehicle_id, vehicle_sensors in vehicle_sensor_queues.items():
