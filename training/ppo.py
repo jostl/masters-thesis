@@ -340,7 +340,7 @@ def main():
                epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size,
                num_workers=num_workers, c1=c1, c2=c2, critic_writer=critic_writer)
         torch.save(image_agent.action_std, path / "action_std{}".format(episode))
-        if total_time_steps % action_std_decay_frequency == 0:
+        if episode % action_std_decay_frequency == 0:
             image_agent.decay_action_std()
         replay_buffer.clear_buffer()
 
