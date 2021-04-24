@@ -138,7 +138,7 @@ class SegmentationDataset(Dataset):
                                                               classes=self.semantic_classes))
 
         self.batch_read_number += 1
-        return rgb_input, rgb_target, semantic_img, rgb_raw
+        return rgb_input, rgb_target, semantic_img, rgb_raw, str(self.semantic_imgs[idx])
 
 
 class DepthDataset(Dataset):
@@ -173,17 +173,19 @@ class DepthDataset(Dataset):
             self.augmenter = None
         self.batch_read_number = 819200
 
-        midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
-
         if use_transform is None:
+            print("DepthDataset: Using normal transform")
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
         elif use_transform == "midas_small":
+            print("DepthDataset: Using small midas transform")
+            midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
             self.transform = midas_transforms.small_transform
         else:
-            print("DepthDataset: Using big transform")
+            print("DepthDataset: Using big midas transform")
+            midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
             self.transform = midas_transforms.default_transform
 
         self.to_tensor = transforms.Compose([
@@ -212,7 +214,7 @@ class DepthDataset(Dataset):
         depth_img = (np.array([cv2.imread(str(self.depth_imgs[idx]), cv2.IMREAD_GRAYSCALE)]) / 255)
 
         self.batch_read_number += 1
-        return rgb_input, rgb_target, depth_img, rgb_raw
+        return rgb_input, rgb_target, depth_img, rgb_raw, str(self.depth_imgs[idx])
 
 
 class ComparisonDataset(Dataset):
