@@ -8,7 +8,7 @@ from torchvision.utils import save_image
 import numpy as np
 
 from perception.custom_datasets import ComparisonDataset, DepthDataset, SegmentationDataset
-from perception.training.models import createUNet, createFCN, createDeepLabv3, createUNetResNet, createUnetResNetSemSeg
+from perception.training.models import createUNet, createFCN, createDeepLabv3, createUNetResNet, createUNetResNetSemSeg
 from perception.utils.visualization import plot_image, get_segmentation_colors, get_rgb_segmentation, \
     display_images_horizontally, plot_segmentation
 from perception.utils.segmentation_labels import DEFAULT_CLASSES, CARLA_CLASSES
@@ -35,8 +35,9 @@ def semseg_rgb_to_red_channel_bgr(input_img, n_classes=len(DEFAULT_CLASSES)+1):
     return output_img
 
 def main():
-    data_folder = Path("data/perception/test2")
-    save_folder = Path("data/perception/predictions/semseg/unet_resnet50/test2")
+    test = "test2"
+    data_folder = Path("data/perception") / test
+    save_folder = Path("data/perception/predictions/semseg/unet_resnet50_weighted_2.5") / (test)
 
     save_folder.mkdir(parents=True, exist_ok=False)
     #targets = DepthDataset(data_folder, max_n_instances=None)
@@ -44,10 +45,11 @@ def main():
 
     dataloader = DataLoader(targets, batch_size=1, shuffle=False, num_workers=0)
 
-    #model = createUNet()
-    model = createUnetResNetSemSeg(len(DEFAULT_CLASSES)+1)
+    model = createUNetResNetSemSeg(n_classes=(len(DEFAULT_CLASSES)+1))
+    #model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES)+1, backbone="resnet101")
+    #model = createFCN(outputchannels=len(DEFAULT_CLASSES)+1, backbone="resnet101")
     #model_weights = Path("models/perception/unet_best_weights.pt")
-    model_weights = Path("models/perception/unet_resnet50_pretrained_best_weights.pt")
+    model_weights = Path("training_logs/perception/unet_resnet50_weighted_tlights_2.5/epoch-30.pt")
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     assert torch.cuda.is_available()
@@ -66,22 +68,24 @@ def main():
         with torch.set_grad_enabled(False):
             outputs = model(rgb_input)
 
-        #image_gray = cv2.cvtColor(outputs[0].cpu().numpy().transpose(1, 2, 0), cv2.COLOR_BGR2GRAY)
         img_save_path = str((save_folder / img_name).absolute())
-        #print("Saving depth prediction to:", img_save_path)
-        #cv2.imwrite(str((save_folder / img_name).absolute()), outputs[0].cpu().numpy().transpose(1, 2, 0))
-        #save_image(outputs[0], img_save_path)
+        #image_gray = cv2.cvtColor(outputs[0].cpu().numpy().transpose(1, 2, 0), cv2.COLOR_BGR2GRAY)
+
+        if False:
+            #print("Saving depth prediction to:", img_save_path)
+            #cv2.imwrite(img_save_path, outputs[0].cpu().byte().numpy().transpose(1, 2, 0))
+            save_image(outputs[0], img_save_path)
 
 
         if False:
-            pass
-            #plot_image(rgb_raw[0].numpy().transpose(1, 2, 0), title="rgb raw, "+img_name)
-            #plot_image(rgb_input[0].cpu().numpy().transpose(1, 2, 0), title="rgb input, "+img_name)
-            #plot_image(depth_target[0].cpu().numpy().transpose(1, 2, 0), title="ground truth, "+img_name, cmap="gray")
+            plot_image(rgb_raw[0].numpy().transpose(1, 2, 0), title="rgb raw, "+img_name)
+            plot_image(rgb_input[0].cpu().numpy().transpose(1, 2, 0), title="rgb input, "+img_name)
+            plot_image(depth_target[0].cpu().numpy().transpose(1, 2, 0), title="ground truth, "+img_name, cmap="gray")
             #plot_image(semantic_target[0].cpu().numpy().transpose(1, 2, 0), title="ground truth, " + img_name, cmap="gray")
-            #plot_image(outputs[0].cpu().numpy().transpose(1, 2, 0), title="predicted, "+img_name, cmap="gray")
+            plot_image(outputs[0].cpu().numpy().transpose(1, 2, 0), title="predicted, "+img_name, cmap="gray")
+            pass
 
-        if True:
+        if False:
             class_colors = get_segmentation_colors(len(DEFAULT_CLASSES) + 1, class_indxs=DEFAULT_CLASSES)
             semantic_target_rgb = get_rgb_segmentation(semantic_image=semantic_target[0].cpu().numpy().transpose(1, 2, 0),
                                                        class_colors=class_colors)
@@ -97,7 +101,7 @@ def main():
                                               title=img_name, subplot_titles=subtitles)
 
         if True:
-            print("Saving semseg prediction to:", img_save_path)
+            #print("Saving semseg prediction to:", img_save_path)
             red_channel_img = semseg_rgb_to_red_channel_bgr(outputs[0].cpu().numpy().transpose(1, 2, 0))
             cv2.imwrite(img_save_path, red_channel_img)
 
