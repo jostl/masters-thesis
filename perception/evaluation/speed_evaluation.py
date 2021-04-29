@@ -4,8 +4,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from perception.deeplabv3.models import createDeepLabv3
-from perception.deeplabv3.train_semseg import create_dataloaders
+from perception.training.models import createDeepLabv3
+from perception.training.train_semseg import create_dataloaders
 from perception.utils.segmentation_labels import DEFAULT_CLASSES
 
 
