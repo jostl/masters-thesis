@@ -124,19 +124,27 @@ class ImageAgent(Agent):
             steer_points = {"1": 4, "2": 3, "3": 2, "4": 2}
 
         if pid is None:
+            # Reproduction model-10 pid
             pid = {
-                "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
-                "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+                "1": {"Kp": 0.85, "Ki": 0.20, "Kd": 0.0},  # Left
+                "2": {"Kp": 0.6, "Ki": 0.10, "Kd": 0.0},  # Right
                 "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
-                "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+                "4": {"Kp": 1.5, "Ki": 0.5, "Kd": 0.2},  # Follow
             }
+            #pid2 = {
+            #    "1": {"Kp": 0.7, "Ki": 0.1, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.55, "Ki": 0.1, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+            #}
+
 
         self.steer_points = steer_points
         self.turn_control = CustomController(pid)
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
 
-        self.engine_brake_threshold = 2.0
-        self.brake_threshold = 2.0
+        self.engine_brake_threshold = 1.75
+        self.brake_threshold = 1.6
 
         self.last_brake = -1
         self.use_cv = use_cv
