@@ -55,7 +55,8 @@ def _agent_factory_hack(model_path, config, autopilot):
     return lambda: agent_class(**agent_args)
 
 
-def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, show=False, move_camera=False):
+def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, show=False, move_camera=False,
+        use_cv=False):
     log_dir = model_path.parent
     config = bzu.load_json(str(log_dir / 'config.json'))
 
@@ -67,7 +68,7 @@ def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, s
         benchmark_dir = log_dir / 'benchmark' / model_path.stem / ('%s_seed%d' % (suite_name, seed))
         benchmark_dir.mkdir(parents=True, exist_ok=True)
 
-        with make_suite(suite_name, port=port, big_cam=big_cam) as env:
+        with make_suite(suite_name, port=port, big_cam=big_cam, use_cv=use_cv) as env:
             agent_maker = _agent_factory_hack(model_path, config, autopilot)
 
             run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_run=max_run, show=show,
@@ -93,7 +94,8 @@ if __name__ == '__main__':
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--max-run', type=int, default=3)
     parser.add_argument('--move-camera', action="store_true")
+    parser.add_argument('--use-cv', action="store_true")
     args = parser.parse_args()
 
     run(Path(args.model_path), args.port, args.suite, args.big_cam, args.seed, args.autopilot, args.resume,
-        max_run=args.max_run, show=args.show, move_camera=args.move_camera)
+        max_run=args.max_run, show=args.show, move_camera=args.move_camera, use_cv=args.use_cv)

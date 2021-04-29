@@ -245,17 +245,18 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
 
 
 def train(config):
-    assert config['use_cv'] != (config['data_args']['batch_aug'] > 1),\
+    use_cv = config["agent_args"]["use_cv"]
+    assert use_cv != (config['data_args']['batch_aug'] > 1),\
         "Currently not legal to have batch aug > 1 and use_cv = True"
     bzu.log.init(config['log_dir'])
     bzu.log.save_config(config)
     teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
 
-    data_train, data_val = load_data(**config['data_args'], use_cv=config['use_cv'])
+    data_train, data_val = load_data(**config['data_args'], use_cv=use_cv)
     criterion = LocationLoss()
 
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
-                            use_cv=config["use_cv"])
+                            use_cv=use_cv)
 
     teacher_net = BirdViewPolicyModelSS(teacher_config['model_args']['backbone'], pretrained=True, all_branch=True).to(
         config['device'])
@@ -318,7 +319,6 @@ if __name__ == '__main__':
         'phase0_ckpt': parsed.ckpt,
         'optimizer_args': {'lr': parsed.lr},
         'speed_noise': parsed.speed_noise,
-        'use_cv': parsed.use_cv,
         'data_args': {
             'dataset_dir': parsed.dataset_dir,
             'batch_size': parsed.batch_size,
@@ -334,6 +334,7 @@ if __name__ == '__main__':
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
             'perception_ckpt': parsed.perception_ckpt,
+            'input_channel': 13 if parsed.use_cv else 3
         },
         'teacher_args': {
             'model_path': parsed.teacher_path,
@@ -346,6 +347,7 @@ if __name__ == '__main__':
                 'world_y': 1.4,
                 'fixed_offset': 4.0,
             },
+            'use_cv': parsed.use_cv
         }
     }
 

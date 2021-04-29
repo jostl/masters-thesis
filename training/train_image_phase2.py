@@ -290,7 +290,8 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
 
 def train(config):
-    assert config["use_cv"] != (config["buffer_args"]["batch_aug"] > 1), \
+    use_cv = config["agent_args"]["use_cv"]
+    assert use_cv != (config["buffer_args"]["batch_aug"] > 1), \
         "Currently not legal to have batch aug > 1 and use_cv = True"
     import utils.bz_utils as bzu
     from training.phase2_utils import (
@@ -300,11 +301,11 @@ def train(config):
         load_birdview_model,
         setup_image_model
     )
-    replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=config['use_cv'])
+    replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=use_cv)
     if config['resume_episode'] >= 0:
         print("Resuming from previous run. Setting up replay buffer from episode {}".format(config["resume_episode"]))
         print("Loading images, cmds, speeds and targets")
-        if config["use_cv"]:
+        if use_cv:
             print("Reading image data")
             rgb =  torch.load(
             Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(config["resume_episode"]))
@@ -341,7 +342,7 @@ def train(config):
             input_data, cmd, speed, target = image_data[i]
             birdview = birdview_data[i]
             weight = replay_buffer_weights[i]
-            if config['use_cv']:
+            if use_cv:
                 rgb, semseg, depth = input_data
                 replay_buffer.add_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
             else:
@@ -364,7 +365,7 @@ def train(config):
 
     criterion = LocationLoss()
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False,
-                            use_cv=config['use_cv'])
+                            use_cv=use_cv)
 
     teacher_net = load_birdview_model(
         "resnet18",
@@ -380,10 +381,10 @@ def train(config):
     for episode in tqdm.tqdm(range(begin_episode, config['max_episode'] + begin_episode), initial=begin_episode,
                              desc='Episode'):
         rollout(replay_buffer, coord_converter, net, teacher_net, episode, episode_length=config['episode_length'],
-                image_agent_kwargs=image_agent_kwargs, port=config['port'], use_cv=config["use_cv"])
+                image_agent_kwargs=image_agent_kwargs, port=config['port'], use_cv=use_cv)
 
         print("Saving images, cmds, speeds and targets from replay buffer...")
-        if config["use_cv"]:
+        if use_cv:
             rgb, semseg, depth = replay_buffer.get_image_data()
             torch.save(rgb,
                       Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
@@ -425,7 +426,6 @@ if __name__ == '__main__':
 
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--perception_ckpt', default="")
-    parser.add_argument('--n_semantic_classes', type=int, default=6)
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -453,7 +453,6 @@ if __name__ == '__main__':
             'phase1_ckpt': parsed.ckpt,
             'resume_episode': parsed.resume_episode,
             'optimizer_args': {'lr': parsed.lr},
-            'use_cv': parsed.use_cv,
             'buffer_args': {
                 'buffer_limit': 200000,
                 'batch_aug': parsed.batch_aug,
@@ -465,7 +464,7 @@ if __name__ == '__main__':
                 'image_ckpt' : parsed.ckpt,
                 'backbone': BACKBONE,
                 'perception_ckpt': parsed.perception_ckpt,
-                'n_semantic_classes':parsed.n_semantic_classes
+                'input_channel': 13 if parsed.use_cv else 3
                 },
             'agent_args': {
                 'camera_args': {
@@ -474,7 +473,8 @@ if __name__ == '__main__':
                     'fov': 90,
                     'world_y': 1.4,
                     'fixed_offset': parsed.fixed_offset,
-                }
+                },
+                'use_cv': parsed.use_cv
             },
             'teacher_args' : {
                 'model_path': parsed.teacher_path,
