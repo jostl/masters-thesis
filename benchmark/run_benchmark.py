@@ -1,9 +1,6 @@
-from pathlib import Path
-
 import pandas as pd
-import numpy as np
 import tqdm
-import time
+from pynput import keyboard
 
 import bird_view.utils.bz_utils as bzu
 import bird_view.utils.carla_utils as cu
@@ -162,6 +159,7 @@ def _paint(observations, control, diagnostic, debug, env, show=False):
         bzu.show_image('canvas', full)
     bzu.add_to_video(full)
 
+manual_break = False
 
 def run_single(env, weather, start, target, agent_maker, seed, autopilot, show=False, move_camera=False):
     # HACK: deterministic vehicle spawns.
@@ -185,6 +183,10 @@ def run_single(env, weather, start, target, agent_maker, seed, autopilot, show=F
             'collided': None,
             }
     i = 0
+
+    listener = keyboard.Listener(on_release=on_release)
+    listener.start()
+
     while env.tick():
         if i % 50 == 0 and move_camera:
             env.move_spectator_to_player()
@@ -199,15 +201,31 @@ def run_single(env, weather, start, target, agent_maker, seed, autopilot, show=F
         diagnostic.pop('viz_img')
         diagnostics.append(diagnostic)
 
-        if env.is_failure() or env.is_success():
+        global manual_break
+        if env.is_failure() or env.is_success() or manual_break:
             result['success'] = env.is_success()
             result['total_lights_ran'] = env.traffic_tracker.total_lights_ran
             result['total_lights'] = env.traffic_tracker.total_lights
             result['collided'] = env.collided
             result['t'] = env._tick
+
+            if manual_break:
+                print("Manual break activated")
+                result['success'] = False
+                manual_break = False
+
             break
+    listener.stop()
 
     return result, diagnostics
+
+
+def on_release(key):
+    #print('{0} released'.format(key))
+    if key == keyboard.Key.page_down:
+        print("pgdown pressed")
+        global manual_break
+        manual_break = True
 
 
 def run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_run=5, show=False, move_camera=False):
