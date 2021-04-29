@@ -127,7 +127,6 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
 
                     data_dict = {}
                     if use_cv:
-                        observations['depth'] = observations['depth'] / 255
                         data_dict.update({
                             'semseg': observations['semseg'].copy(),
                             'depth': observations['depth'].copy()
@@ -188,7 +187,7 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
         net.train()
         replay_buffer.init_new_weights()
-        loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=0, pin_memory=True, shuffle=True, drop_last=True)
+        loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=2, pin_memory=True, shuffle=True, drop_last=True)
 
         description = "Epoch " + str(epoch)
         for i, (idxes, image, command, speed, target, birdview) in tqdm.tqdm(enumerate(loader), desc=description):
@@ -256,6 +255,7 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
         replay_buffer.normalize_weights()
 
         image, birdview, command, speed, target = replay_buffer.get_highest_k(32)
+
         image = image.to(config['device']).float()
         birdview = birdview.to(config['device']).float()
         command = one_hot(command).to(config['device']).float()
@@ -290,7 +290,7 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
 
 def train(config):
-    assert config["use_cv"] == (config["buffer_args"]["batch_aug"] > 1), \
+    assert config["use_cv"] != (config["buffer_args"]["batch_aug"] > 1), \
         "Currently not legal to have batch aug > 1 and use_cv = True"
     import utils.bz_utils as bzu
     from training.phase2_utils import (
@@ -301,10 +301,28 @@ def train(config):
         setup_image_model
     )
     replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=config['use_cv'])
-    if config['resume_episode'] > 0:
+    if config['resume_episode'] >= 0:
         print("Resuming from previous run. Setting up replay buffer from episode {}".format(config["resume_episode"]))
         print("Loading images, cmds, speeds and targets")
-        image_data = torch.load(
+        if config["use_cv"]:
+            print("Reading image data")
+            rgb =  torch.load(
+            Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(config["resume_episode"]))
+            print("Reading semseg data")
+            semseg = torch.load(
+                Path(config['log_dir']) / 'replay_buffer-{}_semseg_data.saved'.format(config["resume_episode"]))
+            print("Reading depth data")
+            depth = torch.load(
+                Path(config['log_dir']) / 'replay_buffer-{}_depth_data.saved'.format(config["resume_episode"]))
+            image_data = []
+            for i in range(len(rgb)):
+                r, cmd, speed, target = rgb[i]
+                ss = semseg[i]
+                d = depth[i]
+                data = (r, ss, d)
+                image_data.append((data, cmd, speed, target))
+        else:
+            image_data = torch.load(
             Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(config["resume_episode"]))
 
         print("Loading birdview images")
@@ -365,8 +383,17 @@ def train(config):
                 image_agent_kwargs=image_agent_kwargs, port=config['port'], use_cv=config["use_cv"])
 
         print("Saving images, cmds, speeds and targets from replay buffer...")
-        torch.save(replay_buffer.get_image_data(),
-                   Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
+        if config["use_cv"]:
+            rgb, semseg, depth = replay_buffer.get_image_data()
+            torch.save(rgb,
+                      Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
+            torch.save(semseg,
+                       Path(config['log_dir']) / 'replay_buffer-{}_semseg_data.saved'.format(episode))
+            torch.save(depth,
+                       Path(config['log_dir']) / 'replay_buffer-{}_depth_data.saved'.format(episode))
+        else:
+            torch.save(replay_buffer.get_image_data(),
+                       Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
 
         print("Saving birdview images from replay buffer...")
         torch.save(replay_buffer.get_birdview_data(),
@@ -394,7 +421,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_cv', default=False, action='store_true',
                         help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
     # resume flag will continue from the chosen epoch with the saved replay buffer. Assumes identical config
-    parser.add_argument('--resume_episode', type=int, default=0)
+    parser.add_argument('--resume_episode', type=int, default=-1)
 
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--perception_ckpt', default="")

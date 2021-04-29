@@ -36,7 +36,7 @@ GAP = 5
 N_STEP = 5
 PIXELS_PER_METER = 5
 CROP_SIZE = 192
-SAVE_EPOCHS = [1, 2, 4, 8, 16, 32, 64, 128, 192, 256]
+SAVE_EPOCHS = list(range(256))
 
 
 class CoordConverter():
@@ -176,7 +176,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
     tick = time.time()
     
     import torch.distributions as tdist
-    noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
+    #noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
     imgs = None
     for i, (image, birdview, location, command, speed) in iterator:
         image = image.to(config['device'])
@@ -245,7 +245,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
 
 
 def train(config):
-    assert config['use_cv'] == (config['data_args']['batch_aug'] > 1),\
+    assert config['use_cv'] != (config['data_args']['batch_aug'] > 1),\
         "Currently not legal to have batch aug > 1 and use_cv = True"
     bzu.log.init(config['log_dir'])
     bzu.log.save_config(config)
@@ -267,8 +267,8 @@ def train(config):
     optim = torch.optim.Adam(net.parameters(), lr=config['optimizer_args']['lr'])
 
     for epoch in tqdm.tqdm(range(config['max_epoch']+1), desc='Epoch'):
-        train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0)
-        train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0)
+        train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0, display=True)
+        train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0, display=True)
 
         if epoch in SAVE_EPOCHS:
             torch.save(

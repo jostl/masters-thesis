@@ -580,10 +580,12 @@ class CarlaWrapper(object):
 
         with self._rgb_queue.mutex:
             self._rgb_queue.queue.clear()
-        with self._semantic_queue.mutex:
-            self._semantic_queue.queue.clear()
-        with self._depth_queue.mutex:
-            self._depth_queue.queue.clear()
+        if self._semantic_queue is not None:
+            with self._semantic_queue.mutex:
+                self._semantic_queue.queue.clear()
+        if self._depth_queue is not None:
+            with self._depth_queue.mutex:
+                self._depth_queue.queue.clear()
 
         self._time_start = time.time()
         self._tick = 0

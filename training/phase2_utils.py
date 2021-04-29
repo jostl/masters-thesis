@@ -255,7 +255,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
         if self.use_cv:
             semantic_image = self.to_tensor(get_segmentation_tensor(image_data[1], classes=DEFAULT_CLASSES)).float()
-            depth_image = self.to_tensor(image_data[2]).float()
+            depth_image = self.to_tensor(image_data[2] / 255 ).float()
             rgb_imgs = self.normalize_rgb(rgb_imgs)
             image = torch.cat([rgb_imgs, semantic_image, depth_image])
             return idx, image, cmd, speed, target, birdview_img
@@ -312,9 +312,9 @@ class ReplayBuffer(torch.utils.data.Dataset):
                     def transpose(img):
                         return img.transpose(2, 0, 1)
                     rgb_img, semseg, depth = image
-                    rgb_img = transpose(rgb_img)
+                    rgb_img = self.normalize_rgb(self.rgb_transform(rgb_img)).numpy()
                     semseg = transpose(get_segmentation_tensor(semseg, classes=DEFAULT_CLASSES))
-                    depth = np.array([depth])
+                    depth = np.array([depth]) / 255
                     image = np.concatenate((rgb_img, semseg, depth), axis=0).transpose(1, 2, 0)
 
                 images.append(TF.to_tensor(np.ascontiguousarray(image)))
@@ -330,6 +330,11 @@ class ReplayBuffer(torch.utils.data.Dataset):
         return self._weights
 
     def get_image_data(self):
+        if self.use_cv:
+            rgb = [(self._data[i][0][0],self._data[i][1], self._data[i][2], self._data[i][3]) for i in range(len(self._data))]
+            semseg = [self._data[i][0][1] for i in range(len(self._data))]
+            depth = [self._data[i][0][2] for i in range(len(self._data))]
+            return rgb, semseg, depth
         image_data = [self._data[i][0:-1] for i in range(len(self._data))]
         return image_data
 

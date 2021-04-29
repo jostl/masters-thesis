@@ -77,7 +77,7 @@ class ImageDataset(Dataset):
     ):
         self._name_map = {}
         
-        self.file_map = {}
+        #self.file_map = {}
         self.idx_map = {}
 
         self.bird_view_transform = transforms.ToTensor()
@@ -126,7 +126,7 @@ class ImageDataset(Dataset):
             
             for _ in range(N):
                 self._name_map[_+count] = full_path
-                self.file_map[_+count] = txn
+                #self.file_map[_+count] = txn
                 self.idx_map[_+count] = _
                 
             count += N
@@ -135,13 +135,20 @@ class ImageDataset(Dataset):
         self.batch_read_number = batch_read_number
         
     def __len__(self):
-        return len(self.file_map)
+        return len(self._name_map)
 
     def __getitem__(self, idx):
 
-        lmdb_txn = self.file_map[idx]
+        #lmdb_txn = self.file_map[idx]
+        lmdb_txn = lmdb.open(self._name_map[idx],
+                  max_readers=1,
+                  readonly=True,
+                  lock=False,
+                  readahead=False,
+                  meminit=False
+                  ).begin(write=False)
         index = self.idx_map[idx]
-        
+        original_index = index
         bird_view = np.frombuffer(lmdb_txn.get(('birdview_%04d'%index).encode()), np.uint8).reshape(320,320,7)
         measurement = np.frombuffer(lmdb_txn.get(('measurements_%04d'%index).encode()), np.float32)
         rgb_image = np.fromstring(lmdb_txn.get(('rgb_%04d'%index).encode()), np.uint8).reshape(160,384,3)
@@ -181,7 +188,14 @@ class ImageDataset(Dataset):
 
         for dt in range(self.gap, self.gap*(self.n_step+1), self.gap):
             
-            lmdb_txn = self.file_map[idx]
+            #lmdb_txn = self.file_map[idx]
+            lmdb_txn = lmdb.open(self._name_map[idx],
+                  max_readers=1,
+                  readonly=True,
+                  lock=False,
+                  readahead=False,
+                  meminit=False
+                  ).begin(write=False)
             index =self.idx_map[idx]+dt
             
             f_measurement = np.frombuffer(lmdb_txn.get(("measurements_%04d"%index).encode()), np.float32)
@@ -234,10 +248,10 @@ class ImageDataset(Dataset):
         if self.use_cv:
             rgb_images = self.normalize_rgb(rgb_images)
             semantic_image = self.to_tensor(get_segmentation_tensor(
-                np.fromstring(lmdb_txn.get(('semseg_%04d' % index).encode()), np.uint8).reshape(160, 384, 3),
+                np.fromstring(lmdb_txn.get(('semseg_%04d' % original_index).encode()), np.uint8).reshape(160, 384, 3),
                 classes=DEFAULT_CLASSES)).float()
             depth_image = self.to_tensor(np.fromstring(
-                lmdb_txn.get(('depth_%04d' % index).encode()), np.uint8).reshape(160, 384, 1) / 255).float()
+                lmdb_txn.get(('depth_%04d' % original_index).encode()), np.uint8).reshape(160, 384, 1) / 255).float()
             images = torch.cat([rgb_images, semantic_image, depth_image], dim=0)
             return images, bird_view, np.array(locations), cmd, speed
 
