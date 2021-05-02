@@ -194,6 +194,7 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
             #if i % 100 == 0:
                 #print ("ITER: %d"%i)
             image = image.to(config['device']).float()
+
             birdview = birdview.to(config['device']).float()
             command = one_hot(command).to(config['device']).float()
             speed = speed.to(config['device']).float()
@@ -297,11 +298,16 @@ def train(config):
     from training.phase2_utils import (
         CoordConverter,
         ReplayBuffer,
+        ReplayBufferPath,
         LocationLoss,
         load_birdview_model,
         setup_image_model
     )
-    replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=use_cv)
+    buffer_type = config["buffer_args"]["type"]
+    if buffer_type == "standard":
+        replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=use_cv)
+    else:
+        replay_buffer = ReplayBufferPath(path=config["log_dir"], use_cv=use_cv, **config["buffer_args"])
     if config['resume_episode'] >= 0:
         print("Resuming from previous run. Setting up replay buffer from episode {}".format(config["resume_episode"]))
         print("Loading images, cmds, speeds and targets")
@@ -344,10 +350,12 @@ def train(config):
             weight = replay_buffer_weights[i]
             if use_cv:
                 rgb, semseg, depth = input_data
-                replay_buffer.add_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
+                if buffer_type == "path":
+                    replay_buffer.add_path_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
+                else:
+                    replay_buffer.add_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
             else:
                 replay_buffer.add_data(input_data, cmd, speed, target, birdview, weight)
-
         replay_buffer.normalized = True
         print("Replay buffer complete.")
 
@@ -382,12 +390,13 @@ def train(config):
                              desc='Episode'):
         rollout(replay_buffer, coord_converter, net, teacher_net, episode, episode_length=config['episode_length'],
                 image_agent_kwargs=image_agent_kwargs, port=config['port'], use_cv=use_cv)
-
+        # import pdb; pdb.set_trace()
+        _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
         print("Saving images, cmds, speeds and targets from replay buffer...")
         if use_cv:
             rgb, semseg, depth = replay_buffer.get_image_data()
             torch.save(rgb,
-                      Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
+                       Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
             torch.save(semseg,
                        Path(config['log_dir']) / 'replay_buffer-{}_semseg_data.saved'.format(episode))
             torch.save(depth,
@@ -400,9 +409,6 @@ def train(config):
         torch.save(replay_buffer.get_birdview_data(),
                    Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(episode))
         print("Rollout-data saved.", sep="")
-        # import pdb; pdb.set_trace()
-        _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
-
         print("Saving replay buffer weights ...")
         torch.save(replay_buffer.get_weights(),
                    Path(config["log_dir"]) / "replay_buffer-{}_weights.saved".format(episode))
@@ -417,6 +423,7 @@ if __name__ == '__main__':
     parser.add_argument('--episode_length', type=int, default=1000)
     parser.add_argument('--epoch_per_episode', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--buffer_type', default="normal", choices=["standard", "path"])
     parser.add_argument('--speed_noise', type=float, default=0.0)
     parser.add_argument('--batch_aug', type=int, default=1)
     parser.add_argument('--use_cv', default=False, action='store_true',
@@ -458,6 +465,7 @@ if __name__ == '__main__':
                 'batch_aug': parsed.batch_aug,
                 'augment': 'super_hard',
                 'aug_fix_iter': 819200,
+                'type' : parsed.buffer_type,
             },
             'model_args': {
                 'model': 'image_ss',
