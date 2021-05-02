@@ -330,11 +330,6 @@ class ReplayBuffer(torch.utils.data.Dataset):
         return self._weights
 
     def get_image_data(self):
-        if self.use_cv:
-            rgb = [(self._data[i][0][0],self._data[i][1], self._data[i][2], self._data[i][3]) for i in range(len(self._data))]
-            semseg = [self._data[i][0][1] for i in range(len(self._data))]
-            depth = [self._data[i][0][2] for i in range(len(self._data))]
-            return rgb, semseg, depth
         image_data = [self._data[i][0:-1] for i in range(len(self._data))]
         return image_data
 
@@ -482,21 +477,6 @@ class ReplayBufferPath(torch.utils.data.Dataset):
             self._data.pop(idx)
             self._weights.pop(idx)
 
-    def add_path_data(self, rgb_path, cmd, speed, target, birdview_img, weight, semseg_path=None, depth_path=None):
-        self.normalized = False
-        if semseg_path is not None and depth_path is not None:
-            image_path = (rgb_path, semseg_path, depth_path)
-        else:
-            image_path = rgb_path
-        self.image_nr += 1
-        self._data.append((image_path, cmd, speed, target, birdview_img))
-        self._weights.append(weight)
-        if len(self._data) > self.buffer_limit:
-            # Pop the one with lowest loss
-            idx = np.argsort(self._weights)[0]
-            self._data.pop(idx)
-            self._weights.pop(idx)
-
     def remove_data(self, idx):
         self._weights.pop(idx)
         self._data.pop(idx)
@@ -533,23 +513,6 @@ class ReplayBufferPath(torch.utils.data.Dataset):
 
         return torch.stack(images), torch.stack(bird_views), torch.FloatTensor(cmds), torch.FloatTensor(
             speeds), torch.FloatTensor(targets)
-
-    def get_weights(self):
-        return self._weights
-
-    def get_image_data(self):
-        if self.use_cv:
-            rgb = [(self._data[i][0][0], self._data[i][1], self._data[i][2], self._data[i][3]) for i in
-                   range(len(self._data))]
-            semseg = [self._data[i][0][1] for i in range(len(self._data))]
-            depth = [self._data[i][0][2] for i in range(len(self._data))]
-            return rgb, semseg, depth
-        image_data = [self._data[i][0:-1] for i in range(len(self._data))]
-        return image_data
-
-    def get_birdview_data(self):
-        birdview_data = [self._data[i][-1] for i in range(len(self._data))]
-        return birdview_data
 
 def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="", semantic_classes=DEFAULT_CLASSES,
                       image_ckpt="", use_cv=False, all_branch=False, **kwargs):

@@ -292,7 +292,7 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
 def train(config):
     use_cv = config["agent_args"]["use_cv"]
-    assert use_cv != (config["buffer_args"]["batch_aug"] > 1), \
+    assert not(use_cv != (config["buffer_args"]["batch_aug"] > 1)), \
         "Currently not legal to have batch aug > 1 and use_cv = True"
     import utils.bz_utils as bzu
     from training.phase2_utils import (
@@ -306,56 +306,38 @@ def train(config):
     buffer_type = config["buffer_args"]["type"]
     if buffer_type == "standard":
         replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=use_cv)
-    else:
+    elif buffer_type == "path" and config["resume_episode"] < 0:
         replay_buffer = ReplayBufferPath(path=config["log_dir"], use_cv=use_cv, **config["buffer_args"])
+
     if config['resume_episode'] >= 0:
         print("Resuming from previous run. Setting up replay buffer from episode {}".format(config["resume_episode"]))
-        print("Loading images, cmds, speeds and targets")
-        if use_cv:
-            print("Reading image data")
-            rgb =  torch.load(
-            Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(config["resume_episode"]))
-            print("Reading semseg data")
-            semseg = torch.load(
-                Path(config['log_dir']) / 'replay_buffer-{}_semseg_data.saved'.format(config["resume_episode"]))
-            print("Reading depth data")
-            depth = torch.load(
-                Path(config['log_dir']) / 'replay_buffer-{}_depth_data.saved'.format(config["resume_episode"]))
-            image_data = []
-            for i in range(len(rgb)):
-                r, cmd, speed, target = rgb[i]
-                ss = semseg[i]
-                d = depth[i]
-                data = (r, ss, d)
-                image_data.append((data, cmd, speed, target))
-        else:
+        if buffer_type == "standard":
+            print("Loading images, cmds, speeds and targets")
             image_data = torch.load(
             Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(config["resume_episode"]))
+            print("Loading birdview images")
+            birdview_data = torch.load(
+                Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(config["resume_episode"]))
 
-        print("Loading birdview images")
-        birdview_data = torch.load(
-            Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(config["resume_episode"]))
+            assert len(birdview_data) == len(image_data), "Length of image-data and birdview-data is not the same."
 
-        assert len(birdview_data) == len(image_data), "Length of image-data and birdview-data is not the same."
+            print("Loading replay buffer weights")
+            replay_buffer_weights = torch.load(
+                Path(config['log_dir']) / 'replay_buffer-{}_weights.saved'.format(config["resume_episode"]))
 
-        print("Loading replay buffer weights")
-        replay_buffer_weights = torch.load(
-            Path(config['log_dir']) / 'replay_buffer-{}_weights.saved'.format(config["resume_episode"]))
+            assert len(replay_buffer_weights) == len(image_data), "dint find enough weights"
 
-        assert len(replay_buffer_weights) == len(image_data), "dint find enough weights"
-
-        for i in range(len(image_data)):
-            input_data, cmd, speed, target = image_data[i]
-            birdview = birdview_data[i]
-            weight = replay_buffer_weights[i]
-            if use_cv:
-                rgb, semseg, depth = input_data
-                if buffer_type == "path":
-                    replay_buffer.add_path_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
-                else:
+            for i in range(len(image_data)):
+                input_data, cmd, speed, target = image_data[i]
+                birdview = birdview_data[i]
+                weight = replay_buffer_weights[i]
+                if use_cv:
+                    rgb, semseg, depth = input_data
                     replay_buffer.add_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
-            else:
-                replay_buffer.add_data(input_data, cmd, speed, target, birdview, weight)
+                else:
+                    replay_buffer.add_data(input_data, cmd, speed, target, birdview, weight)
+        else:
+            replay_buffer = torch.load(Path(config["log_dir"]) / "replay_buffer_episode_{}.saved".format(config["resume_episode"]))
         replay_buffer.normalized = True
         print("Replay buffer complete.")
 
@@ -392,27 +374,21 @@ def train(config):
                 image_agent_kwargs=image_agent_kwargs, port=config['port'], use_cv=use_cv)
         # import pdb; pdb.set_trace()
         _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
-        print("Saving images, cmds, speeds and targets from replay buffer...")
-        if use_cv:
-            rgb, semseg, depth = replay_buffer.get_image_data()
-            torch.save(rgb,
-                       Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
-            torch.save(semseg,
-                       Path(config['log_dir']) / 'replay_buffer-{}_semseg_data.saved'.format(episode))
-            torch.save(depth,
-                       Path(config['log_dir']) / 'replay_buffer-{}_depth_data.saved'.format(episode))
-        else:
+        if buffer_type == "standard":
+            print("Storing images, cmds, speeds and targets from replay buffer...")
             torch.save(replay_buffer.get_image_data(),
-                       Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
-
-        print("Saving birdview images from replay buffer...")
-        torch.save(replay_buffer.get_birdview_data(),
-                   Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(episode))
-        print("Rollout-data saved.", sep="")
-        print("Saving replay buffer weights ...")
-        torch.save(replay_buffer.get_weights(),
-                   Path(config["log_dir"]) / "replay_buffer-{}_weights.saved".format(episode))
-        print("Replay buffer weights for episode number (", episode, ") saved.", sep="")
+                           Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
+            print("Storing birdview images from replay buffer...")
+            torch.save(replay_buffer.get_birdview_data(),
+                       Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(episode))
+            print("Storing replay buffer weights ...")
+            torch.save(replay_buffer.get_weights(),
+                       Path(config["log_dir"]) / "replay_buffer-{}_weights.saved".format(episode))
+            print("Replay buffer weights for episode number (", episode, ") saved.", sep="")
+        else:
+            print("Storing replay buffer from episode {}".format(episode))
+            torch.save(replay_buffer, Path(config["log_dir"]) / "replay_buffer_episode_{}.saved".format(episode))
+        print("Rollout-data stored.", sep="")
 
 
 if __name__ == '__main__':

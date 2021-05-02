@@ -246,7 +246,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
 
 def train(config):
     use_cv = config["agent_args"]["use_cv"]
-    assert use_cv != (config['data_args']['batch_aug'] > 1),\
+    assert not(use_cv != (config['data_args']['batch_aug'] > 1)),\
         "Currently not legal to have batch aug > 1 and use_cv = True"
     bzu.log.init(config['log_dir'])
     bzu.log.save_config(config)
