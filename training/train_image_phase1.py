@@ -176,7 +176,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
     tick = time.time()
     
     import torch.distributions as tdist
-    #noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
+    noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
     imgs = None
     for i, (image, birdview, location, command, speed) in iterator:
         image = image.to(config['device'])
@@ -268,8 +268,8 @@ def train(config):
     optim = torch.optim.Adam(net.parameters(), lr=config['optimizer_args']['lr'])
 
     for epoch in tqdm.tqdm(range(config['max_epoch']+1), desc='Epoch'):
-        train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0, display=True)
-        train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0, display=True)
+        train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0)
+        train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0)
 
         if epoch in SAVE_EPOCHS:
             torch.save(
