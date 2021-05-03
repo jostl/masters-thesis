@@ -97,8 +97,11 @@ class FullModel(nn.Module):
         #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_best_weights.pt"))'
         self.depth_model = createUNetResNet()
         self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_resnet34_pretrained_best_weights.pt"))
+        self.depth_model.eval()
+
         self.semseg_model = createUNetResNetSemSeg(len(DEFAULT_CLASSES) + 1)
         self.semseg_model.load_state_dict(torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_5_epoch-29.pt"))
+        self.semseg_model.eval()
 
         self.return_cv_preds = True
 
@@ -121,9 +124,9 @@ class FullModel(nn.Module):
     def forward(self, rgb_raw, velocity, command):
 
         rgb_norm = self.normalize_rgb(rgb_raw)
-        dept_pred = torch.clip(self.depth_model(rgb_norm), 0, 1)
-        semseg_pred = self.semseg_model(rgb_norm)
-
+        with torch.no_grad():
+            dept_pred = torch.clip(self.depth_model(rgb_norm), 0, 1)
+            semseg_pred = self.semseg_model(rgb_norm)
         semseg_argmax = torch.argmax(semseg_pred, dim=1)
         semseg_pred = nn.functional.one_hot(semseg_argmax, num_classes=len(DEFAULT_CLASSES) + 1).permute(0, 3, 1, 2)
         _input = torch.cat([rgb_norm, semseg_pred, dept_pred], dim=1)

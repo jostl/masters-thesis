@@ -186,7 +186,10 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
         optimizer = torch.optim.Adam(net.parameters(), lr=1e-4)
 
-        net.train()
+        if config["agent_args"]["trained_cv"]:
+            net.image_model.train()
+        else:
+            net.train()
         replay_buffer.init_new_weights()
         loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=2,
                                              pin_memory=True, shuffle=True, drop_last=True, worker_init_fn=worker_init_fn)

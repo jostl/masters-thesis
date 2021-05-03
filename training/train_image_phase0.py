@@ -161,7 +161,10 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
                   display=False):
     if is_train:
         desc = 'Train'
-        net.train()
+        if config["trained_cv"]:
+            net.image_model.train()
+        else:
+            net.train()
     else:
         desc = 'Val'
         net.eval()

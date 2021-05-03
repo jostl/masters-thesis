@@ -165,7 +165,10 @@ def repeat(a, repeats, dim=0):
 def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_train, config, is_first_epoch, display=False):
     if is_train:
         desc = 'Train'
-        net.train()
+        if config["agent_args"]["trained_cv"]:
+            net.image_model.train()
+        else:
+            net.train()
     else:
         desc = 'Val'
         net.eval()
