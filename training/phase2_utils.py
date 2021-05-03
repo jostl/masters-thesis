@@ -64,7 +64,7 @@ def get_weight(learner_points, teacher_points):
 def weighted_random_choice(weights):
     t = np.cumsum(weights)
     s = np.sum(weights)
-    return np.searchsorted(t, random.uniform(0,s))
+    return np.searchsorted(t, np.random.uniform(0,s))
 
 def get_optimizer(parameters, lr=1e-4):
     optimizer = torch.optim.Adam(parameters, lr=1e-4)
@@ -515,10 +515,11 @@ class ReplayBufferDisk(torch.utils.data.Dataset):
             speeds), torch.FloatTensor(targets)
 
 def setup_image_model(backbone, imagenet_pretrained, device,  semantic_classes=DEFAULT_CLASSES,
-                      image_ckpt="", use_cv=False, trained_cv=False, all_branch=False, **kwargs):
+                      image_ckpt="", use_cv=False, trained_cv=False, all_branch=False, return_cv_preds=True, **kwargs):
     if trained_cv:
         net = FullModel(image_backbone=backbone, image_pretrained=imagenet_pretrained, all_branch=all_branch,
                         image_ckpt=image_ckpt)
+        net.return_cv_preds = return_cv_preds
     elif use_cv:
         net = ImagePolicyModelSS(backbone, pretrained=imagenet_pretrained, all_branch=all_branch,
                                  input_channel=len(semantic_classes) + 5)

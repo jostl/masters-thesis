@@ -100,6 +100,8 @@ class FullModel(nn.Module):
         self.semseg_model = createUNetResNetSemSeg(len(DEFAULT_CLASSES) + 1)
         self.semseg_model.load_state_dict(torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_5_epoch-29.pt"))
 
+        self.return_cv_preds = True
+
         for param in self.depth_model.parameters():
             param.requires_grad = False
         for param in self.semseg_model.parameters():
@@ -125,8 +127,9 @@ class FullModel(nn.Module):
         semseg_argmax = torch.argmax(semseg_pred, dim=1)
         semseg_pred = nn.functional.one_hot(semseg_argmax, num_classes=len(DEFAULT_CLASSES) + 1).permute(0, 3, 1, 2)
         _input = torch.cat([rgb_norm, semseg_pred, dept_pred], dim=1)
-
-        return self.image_model(_input, velocity, command), semseg_pred, dept_pred
+        if self.return_cv_preds:
+            return self.image_model(_input, velocity, command), semseg_pred, dept_pred
+        return self.image_model(_input, velocity, command)
 
 
 class ImageAgent(Agent):

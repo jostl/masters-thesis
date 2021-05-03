@@ -252,13 +252,18 @@ def train(config):
     optim = torch.optim.Adam(net.parameters(), lr=config['optimizer_args']['lr'])
 
     for epoch in tqdm.tqdm(range(config['max_epoch'] + 1), desc='Epoch'):
-        train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0, display=True)
-        train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0, display=True)
+        train_or_eval(coord_converter, criterion, net, teacher_net, data_train, optim, True, config, epoch == 0)
+        train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0)
 
         if epoch in SAVE_EPOCHS:
-            torch.save(
-                net.state_dict(),
-                str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
+            if config["trained_cv"]:
+                torch.save(
+                    net.image_model.state_dict(),
+                    str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
+            else:
+                torch.save(
+                    net.state_dict(),
+                    str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
 
         bzu.log.end_epoch()
 

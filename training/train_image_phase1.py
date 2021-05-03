@@ -282,10 +282,14 @@ def train(config):
         train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0)
 
         if epoch in SAVE_EPOCHS:
-            torch.save(
+            if config["agent_args"]["trained_cv"]:
+                torch.save(
+                        net.image_model.state_dict(),
+                        str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
+            else:
+                torch.save(
                     net.state_dict(),
                     str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
-
         bzu.log.end_epoch()
 
 
@@ -298,7 +302,6 @@ if __name__ == '__main__':
     # Model
     parser.add_argument('--pretrained', action='store_true')
     parser.add_argument('--ckpt', required=True)
-    parser.add_argument('--perception_ckpt', default="")
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -344,7 +347,6 @@ if __name__ == '__main__':
             'image_ckpt' : parsed.ckpt,
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
-            'perception_ckpt': parsed.perception_ckpt,
             'input_channel': len(DEFAULT_CLASSES) + 5 if parsed.use_cv or parsed.trained_cv else 3
         },
         'teacher_args': {
