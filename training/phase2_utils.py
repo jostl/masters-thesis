@@ -338,7 +338,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
         return birdview_data
 
 
-class ReplayBufferPath(torch.utils.data.Dataset):
+class ReplayBufferDisk(torch.utils.data.Dataset):
     def __init__(self, path, buffer_limit=100000, augment=None, sampling=True, aug_fix_iter=1000000, batch_aug=4,
                  use_cv=False, semantic_classes=DEFAULT_CLASSES, **kwargs):
         self.buffer_limit = buffer_limit

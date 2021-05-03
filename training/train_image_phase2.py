@@ -298,7 +298,7 @@ def train(config):
     from training.phase2_utils import (
         CoordConverter,
         ReplayBuffer,
-        ReplayBufferPath,
+        ReplayBufferDisk,
         LocationLoss,
         load_birdview_model,
         setup_image_model
@@ -306,8 +306,8 @@ def train(config):
     buffer_type = config["buffer_args"]["type"]
     if buffer_type == "standard":
         replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=use_cv)
-    elif buffer_type == "path" and config["resume_episode"] < 0:
-        replay_buffer = ReplayBufferPath(path=config["log_dir"], use_cv=use_cv, **config["buffer_args"])
+    elif buffer_type == "disk" and config["resume_episode"] < 0:
+        replay_buffer = ReplayBufferDisk(path=config["log_dir"], use_cv=use_cv, **config["buffer_args"])
 
     if config['resume_episode'] >= 0:
         print("Resuming from previous run. Setting up replay buffer from episode {}".format(config["resume_episode"]))
@@ -338,6 +338,7 @@ def train(config):
                     replay_buffer.add_data(input_data, cmd, speed, target, birdview, weight)
         else:
             replay_buffer = torch.load(Path(config["log_dir"]) / "replay_buffer_episode_{}.saved".format(config["resume_episode"]))
+
         replay_buffer.normalized = True
         print("Replay buffer complete.")
 
@@ -399,7 +400,7 @@ if __name__ == '__main__':
     parser.add_argument('--episode_length', type=int, default=1000)
     parser.add_argument('--epoch_per_episode', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--buffer_type', default="normal", choices=["standard", "path"])
+    parser.add_argument('--buffer_type', default="normal", choices=["standard", "disk"])
     parser.add_argument('--speed_noise', type=float, default=0.0)
     parser.add_argument('--batch_aug', type=int, default=1)
     parser.add_argument('--use_cv', default=False, action='store_true',
