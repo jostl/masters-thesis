@@ -215,8 +215,10 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
             with torch.no_grad():
                 _teac_location, _teac_locations = teacher_net(birdview, speed, command)
-
-            _pred_location, _pred_locations = net(image, speed, command)
+            if config["trained_cv"]:
+                (_pred_location, _pred_locations), _ = net(image, speed, command)
+            else:
+                _pred_location, _pred_locations = net(image, speed, command)
             pred_location = coord_converter(_pred_location)
             pred_locations = coord_converter(_pred_locations)
 
@@ -292,8 +294,11 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
 def train(config):
     use_cv = config["agent_args"]["use_cv"]
-    assert not(use_cv != (config["buffer_args"]["batch_aug"] > 1)), \
-        "Currently not legal to have batch aug > 1 and use_cv = True"
+    trained_cv = config["agent_args"]["trained_cv"]
+    assert not (use_cv and trained_cv), \
+        "Cannout use ground truth CV and trained CV at the same time."
+    assert not(use_cv and (config["buffer_args"]["batch_aug"] > 1)), \
+        "Currently not legal to have batch aug > 1 and use_cv = True."
     import utils.bz_utils as bzu
     from training.phase2_utils import (
         CoordConverter,
@@ -356,7 +361,7 @@ def train(config):
 
     criterion = LocationLoss()
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False,
-                            use_cv=use_cv)
+                            use_cv=use_cv, trained_cv=trained_cv)
 
     teacher_net = load_birdview_model(
         "resnet18",
@@ -405,6 +410,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_aug', type=int, default=1)
     parser.add_argument('--use_cv', default=False, action='store_true',
                         help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
+    parser.add_argument('--trained_cv', default=False, action='store_true')
+
     # resume flag will continue from the chosen epoch with the saved replay buffer. Assumes identical config
     parser.add_argument('--resume_episode', type=int, default=-1)
 
@@ -449,7 +456,7 @@ if __name__ == '__main__':
                 'image_ckpt' : parsed.ckpt,
                 'backbone': BACKBONE,
                 'perception_ckpt': parsed.perception_ckpt,
-                'input_channel': 13 if parsed.use_cv else 3
+                'input_channel': len(DEFAULT_CLASSES) + 5 if parsed.use_cv else 3
                 },
             'agent_args': {
                 'camera_args': {

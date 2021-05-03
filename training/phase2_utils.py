@@ -514,21 +514,14 @@ class ReplayBufferDisk(torch.utils.data.Dataset):
         return torch.stack(images), torch.stack(bird_views), torch.FloatTensor(cmds), torch.FloatTensor(
             speeds), torch.FloatTensor(targets)
 
-def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="", semantic_classes=DEFAULT_CLASSES,
-                      image_ckpt="", use_cv=False, all_branch=False, **kwargs):
-    if perception_ckpt:
-        net = FullModel(image_backbone=backbone, image_pretrained=imagenet_pretrained,
-                        n_semantic_classes=len(semantic_classes) + 1, all_branch=all_branch)
-        net.perception.load_state_dict(torch.load(perception_ckpt, map_location=device))
-        net.perception.set_rgb_decoder(use_rgb_decoder=False)
-        # Dont calculate gradients for perception layers
-        for param in net.perception.parameters():
-            param.requires_grad = False
-        if image_ckpt:
-            net.image_model.load_state_dict(torch.load(image_ckpt))
+def setup_image_model(backbone, imagenet_pretrained, device,  semantic_classes=DEFAULT_CLASSES,
+                      image_ckpt="", use_cv=False, trained_cv=False, all_branch=False, **kwargs):
+    if trained_cv:
+        net = FullModel(image_backbone=backbone, image_pretrained=imagenet_pretrained, all_branch=all_branch,
+                        image_ckpt=image_ckpt)
     elif use_cv:
         net = ImagePolicyModelSS(backbone, pretrained=imagenet_pretrained, all_branch=all_branch,
-                                 input_channel=len(semantic_classes) + 1 + 3 + 1)
+                                 input_channel=len(semantic_classes) + 5)
         if image_ckpt:
             net.load_state_dict(torch.load(image_ckpt))
     else:

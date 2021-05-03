@@ -9,9 +9,9 @@ from . import common
 from .agent import Agent
 from .controller import CustomController, PIDController
 from .controller import ls_circle
-from perception.perception_model import MobileNetUNet
 from perception.utils.segmentation_labels import DEFAULT_CLASSES
 from perception.utils.helpers import get_segmentation_tensor
+from perception.training.models import createUNet, createUNetResNetSemSeg, createUNetResNet
 CROP_SIZE = 192
 STEPS = 5
 COMMANDS = 4
@@ -91,20 +91,42 @@ class ImagePolicyModelSS(common.ResnetBase):
 
 
 class FullModel(nn.Module):
-    def __init__(self, n_semantic_classes: int, image_backbone, image_pretrained, all_branch):
+    def __init__(self, image_backbone, all_branch, image_pretrained=False, image_ckpt=""):
         super(FullModel, self).__init__()
-        self.perception = MobileNetUNet(n_semantic_classes)
+        #self.depth_model = createUNet()
+        #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_best_weights.pt"))'
+        self.depth_model = createUNetResNet()
+        self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_resnet34_pretrained_best_weights.pt"))
+        self.semseg_model = createUNetResNetSemSeg(len(DEFAULT_CLASSES) + 1)
+        self.semseg_model.load_state_dict(torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_5_epoch-29.pt"))
+
+        for param in self.depth_model.parameters():
+            param.requires_grad = False
+        for param in self.semseg_model.parameters():
+            param.requires_grad = False
+
+        self.normalize_rgb = common.NormalizeV2(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
         self.image_model = ImagePolicyModelSS(image_backbone,
                                               pretrained=image_pretrained,
-                                              all_branch=all_branch, input_channel=n_semantic_classes + 1)
+                                              all_branch=all_branch, input_channel=len(DEFAULT_CLASSES) + 5)
+        if image_ckpt:
+            self.image_model.load_state_dict(torch.load(image_ckpt))
         self.all_branch = all_branch
 
-    def forward(self, image, velocity, command):
-        semantic_seg_pred, depth_pred = self.perception(image)
+    def forward(self, rgb_raw, velocity, command):
 
-        perception = torch.cat([semantic_seg_pred, depth_pred], dim=1)
+        rgb_norm = self.normalize_rgb(rgb_raw)
+        dept_pred = torch.clip(self.depth_model(rgb_norm), 0, 1)
+        semseg_pred = self.semseg_model(rgb_norm)
 
-        return self.image_model(perception, velocity, command)
+        semseg_argmax = torch.argmax(semseg_pred, dim=1)
+        semseg_pred = nn.functional.one_hot(semseg_argmax, num_classes=len(DEFAULT_CLASSES) + 1).permute(0, 3, 1, 2)
+        _input = torch.cat([rgb_norm, semseg_pred, dept_pred], dim=1)
+
+        return self.image_model(_input, velocity, command), semseg_pred, dept_pred
 
 
 class ImageAgent(Agent):
