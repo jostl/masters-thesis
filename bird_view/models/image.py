@@ -93,7 +93,6 @@ class ImagePolicyModelSS(common.ResnetBase):
 class FullModel(nn.Module):
     def __init__(self, n_semantic_classes: int, image_backbone, image_pretrained, all_branch):
         super(FullModel, self).__init__()
-
         self.perception = MobileNetUNet(n_semantic_classes)
         self.image_model = ImagePolicyModelSS(image_backbone,
                                               pretrained=image_pretrained,
@@ -148,6 +147,10 @@ class ImageAgent(Agent):
 
         self.last_brake = -1
         self.use_cv = use_cv
+        self.normalize_rgb = common.NormalizeV2(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
 
     def run_step(self, observations, teaching=False):
         rgb = observations['rgb'].copy()
@@ -163,7 +166,8 @@ class ImageAgent(Agent):
             if self.use_cv:
                 semseg = self.transform(get_segmentation_tensor(observations['semseg'].copy(),
                                                                 classes=DEFAULT_CLASSES)).float().to(self.device)
-                depth = self.transform(observations['depth'].copy()).float().to(self.device)
+                depth = self.transform(observations['depth'].copy() / 255).float().to(self.device)
+                _rgb = self.normalize_rgb(_rgb)
                 # Stack RGB, semseg and depth.
                 # Need to unsqueeze in order to make prediction, because 'image' must be a batch with a single instance
                 image = torch.cat([_rgb.squeeze(), semseg, depth], dim=0).unsqueeze(0)

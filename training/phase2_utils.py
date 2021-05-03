@@ -12,7 +12,7 @@ try:
     sys.path.append(glob.glob('../bird_view')[0])
 except IndexError as e:
     pass
-
+import cv2
 import utils.carla_utils as cu
 from models.image import ImagePolicyModelSS, FullModel
 from models.birdview import BirdViewPolicyModelSS
@@ -23,7 +23,7 @@ from bird_view.models import common
 CROP_SIZE = 192
 PIXELS_PER_METER = 5
 
-
+from pathlib import Path
 def repeat(a, repeats, dim=0):
     """
     Substitute for numpy's repeat function. Taken from https://discuss.pytorch.org/t/how-to-tile-a-tensor/13853/2
@@ -255,7 +255,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
         if self.use_cv:
             semantic_image = self.to_tensor(get_segmentation_tensor(image_data[1], classes=DEFAULT_CLASSES)).float()
-            depth_image = self.to_tensor(image_data[2]).float()
+            depth_image = self.to_tensor(image_data[2] / 255 ).float()
             rgb_imgs = self.normalize_rgb(rgb_imgs)
             image = torch.cat([rgb_imgs, semantic_image, depth_image])
             return idx, image, cmd, speed, target, birdview_img
@@ -312,9 +312,9 @@ class ReplayBuffer(torch.utils.data.Dataset):
                     def transpose(img):
                         return img.transpose(2, 0, 1)
                     rgb_img, semseg, depth = image
-                    rgb_img = transpose(rgb_img)
+                    rgb_img = self.normalize_rgb(self.rgb_transform(rgb_img)).numpy()
                     semseg = transpose(get_segmentation_tensor(semseg, classes=DEFAULT_CLASSES))
-                    depth = np.array([depth])
+                    depth = np.array([depth]) / 255
                     image = np.concatenate((rgb_img, semseg, depth), axis=0).transpose(1, 2, 0)
 
                 images.append(TF.to_tensor(np.ascontiguousarray(image)))
@@ -337,6 +337,182 @@ class ReplayBuffer(torch.utils.data.Dataset):
         birdview_data = [self._data[i][-1] for i in range(len(self._data))]
         return birdview_data
 
+
+class ReplayBufferDisk(torch.utils.data.Dataset):
+    def __init__(self, path, buffer_limit=100000, augment=None, sampling=True, aug_fix_iter=1000000, batch_aug=4,
+                 use_cv=False, semantic_classes=DEFAULT_CLASSES, **kwargs):
+        self.buffer_limit = buffer_limit
+        self._data = []
+        self._weights = []
+        self.rgb_transform = transforms.ToTensor()
+
+        self.birdview_transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+        self.normalize_rgb = transforms.Compose([
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+        self.to_tensor = transforms.Compose([
+            transforms.ToTensor()
+        ])
+        if augment and augment != 'None':
+            self.augmenter = getattr(augmenter, augment)
+        else:
+            self.augmenter = None
+
+        self.normalized = False
+        self._sampling = sampling
+        self.aug_fix_iter = aug_fix_iter
+        self.batch_aug = batch_aug
+
+        self.use_cv = use_cv
+        self.semantic_classes = semantic_classes
+        # Folder path
+        self.path = Path(path)
+        self.image_nr = 0
+
+        if not self.path.exists():
+            self.path.mkdir()
+        self.rgb_folder = self.path / "rgb"
+        self.birdview_folder = self.path / "birdview"
+        paths = [self.rgb_folder, self.birdview_folder]
+        if self.use_cv:
+            self.segmentation_folder = self.path / "segmentation"
+            self.depth_folder = self.path / "depth"
+            paths.append(self.segmentation_folder)
+            paths.append(self.depth_folder)
+        for path in paths:
+            if not path.exists():
+                path.mkdir()
+
+    def __len__(self):
+        return len(self._data)
+
+    def __getitem__(self, _idx):
+        if self._sampling and self.normalized:
+            while True:
+                idx = weighted_random_choice(self._weights)
+                if idx < len(self._data):
+                    break
+                print("waaat")
+        else:
+            idx = _idx
+
+        image_paths, cmd, speed, target, birdview_path = self._data[idx]
+
+        if self.use_cv:
+            rgb_path, semseg_path, depth_path = image_paths
+            semseg_numpy = self.read_rgb(semseg_path)
+            depth_numpy = cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE) / 255
+        else:
+            rgb_path = image_paths
+        rgb_img = self.read_rgb(rgb_path)
+
+        if self.augmenter:
+            rgb_imgs = [self.augmenter(self.aug_fix_iter).augment_image(rgb_img) for i in range(self.batch_aug)]
+        else:
+            rgb_imgs = [rgb_img for i in range(self.batch_aug)]
+
+        rgb_imgs = [self.rgb_transform(img) for img in rgb_imgs]
+        if self.batch_aug == 1:
+            rgb_imgs = rgb_imgs[0]
+        else:
+            rgb_imgs = torch.stack(rgb_imgs)
+
+        birdview_img = self.birdview_transform(torch.load(birdview_path))
+
+        if self.use_cv:
+            semantic_image = self.to_tensor(get_segmentation_tensor(semseg_numpy, classes=DEFAULT_CLASSES)).float()
+            depth_image = self.to_tensor(depth_numpy).float()
+            rgb_imgs = self.normalize_rgb(rgb_imgs)
+            image = torch.cat([rgb_imgs, semantic_image, depth_image])
+            return idx, image, cmd, speed, target, birdview_img
+        return idx, rgb_imgs, cmd, speed, target, birdview_img
+
+    def read_rgb(self, img_path):
+        return cv2.imread(img_path)
+
+    def update_weights(self, idxes, losses):
+        idxes = idxes.numpy()
+        losses = losses.detach().cpu().numpy()
+        for idx, loss in zip(idxes, losses):
+            if idx > len(self._data):
+                continue
+
+            self._new_weights[idx] = loss
+
+    def init_new_weights(self):
+        self._new_weights = self._weights.copy()
+
+    def normalize_weights(self):
+        self._weights = self._new_weights
+        self.normalized = True
+
+    def add_data(self, rgb_img, cmd, speed, target, birdview_img, weight, semseg=None, depth=None):
+        self.normalized = False
+        file = str(self.image_nr) + ".png"
+        rgb_path = str(self.rgb_folder / file)
+        if semseg is not None and depth is not None:
+            semseg_path = str(self.segmentation_folder / file)
+            depth_path = str(self.depth_folder / file)
+            image_path = (rgb_path, semseg_path, depth_path)
+
+            cv2.imwrite(rgb_path, rgb_img)
+            cv2.imwrite(semseg_path, semseg)
+            cv2.imwrite(depth_path, depth)
+        else:
+            image_path = rgb_path
+            cv2.imwrite(rgb_path, rgb_img)
+        birdview_path = str(self.birdview_folder / str(str(self.image_nr) + ".birdview"))
+        torch.save(birdview_img, birdview_path)
+
+        self.image_nr += 1
+        self._data.append((image_path, cmd, speed, target, birdview_path))
+        self._weights.append(weight)
+
+        if len(self._data) > self.buffer_limit:
+            # Pop the one with lowest loss
+            idx = np.argsort(self._weights)[0]
+            self._data.pop(idx)
+            self._weights.pop(idx)
+
+    def remove_data(self, idx):
+        self._weights.pop(idx)
+        self._data.pop(idx)
+
+    def get_highest_k(self, k):
+        top_idxes = np.argsort(self._weights)[-k:]
+        images = []
+        bird_views = []
+        targets = []
+        cmds = []
+        speeds = []
+
+        for idx in top_idxes:
+            if idx < len(self._data):
+                image_path, cmd, speed, target, birdview_path = self._data[idx]
+                if self.use_cv:
+                    def transpose(img):
+                        return img.transpose(2, 0, 1)
+
+                    rgb_path, semseg_path, depth_path = image_path
+                    rgb_img = self.normalize_rgb(self.rgb_transform(self.read_rgb(rgb_path))).numpy()
+                    semseg = transpose(get_segmentation_tensor(self.read_rgb(semseg_path),
+                                                               classes=DEFAULT_CLASSES))
+                    depth = np.array([cv2.imread(depth_path, cv2.IMREAD_GRAYSCALE)]) / 255
+                    image = np.concatenate((rgb_img, semseg, depth), axis=0).transpose(1, 2, 0)
+                else:
+                    image = self.read_rgb(image_path)
+                birdview_img = torch.load(birdview_path)
+                images.append(TF.to_tensor(np.ascontiguousarray(image)))
+                bird_views.append(TF.to_tensor(birdview_img))
+                cmds.append(cmd)
+                speeds.append(speed)
+                targets.append(target)
+
+        return torch.stack(images), torch.stack(bird_views), torch.FloatTensor(cmds), torch.FloatTensor(
+            speeds), torch.FloatTensor(targets)
 
 def setup_image_model(backbone, imagenet_pretrained, device, perception_ckpt="", semantic_classes=DEFAULT_CLASSES,
                       image_ckpt="", use_cv=False, all_branch=False, **kwargs):

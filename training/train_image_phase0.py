@@ -291,7 +291,7 @@ if __name__ == '__main__':
         'max_epoch': parsed.max_epoch,
         'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
         'optimizer_args': {'lr': parsed.lr},
-        'use_cv' : parsed.use_cv,
+        'use_cv': parsed.use_cv,
         'data_args': {
             'dataset_dir': parsed.dataset_dir,
             'batch_size': parsed.batch_size,
@@ -305,6 +305,7 @@ if __name__ == '__main__':
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
             'perception_ckpt': parsed.perception_ckpt,
+            'input_channel': 13 if parsed.use_cv else 3
         },
         'camera_args': {
             'w': 384,

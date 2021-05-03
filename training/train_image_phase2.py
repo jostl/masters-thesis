@@ -127,7 +127,6 @@ def rollout(replay_buffer, coord_converter, net, teacher_net, episode,
 
                     data_dict = {}
                     if use_cv:
-                        observations['depth'] = observations['depth'] / 255
                         data_dict.update({
                             'semseg': observations['semseg'].copy(),
                             'depth': observations['depth'].copy()
@@ -188,13 +187,14 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
         net.train()
         replay_buffer.init_new_weights()
-        loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=0, pin_memory=True, shuffle=True, drop_last=True)
+        loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=2, pin_memory=True, shuffle=True, drop_last=True)
 
         description = "Epoch " + str(epoch)
         for i, (idxes, image, command, speed, target, birdview) in tqdm.tqdm(enumerate(loader), desc=description):
             #if i % 100 == 0:
                 #print ("ITER: %d"%i)
             image = image.to(config['device']).float()
+
             birdview = birdview.to(config['device']).float()
             command = one_hot(command).to(config['device']).float()
             speed = speed.to(config['device']).float()
@@ -256,6 +256,7 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
         replay_buffer.normalize_weights()
 
         image, birdview, command, speed, target = replay_buffer.get_highest_k(32)
+
         image = image.to(config['device']).float()
         birdview = birdview.to(config['device']).float()
         command = one_hot(command).to(config['device']).float()
@@ -290,44 +291,53 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
 
 def train(config):
-    assert config["use_cv"] == (config["buffer_args"]["batch_aug"] > 1), \
+    use_cv = config["agent_args"]["use_cv"]
+    assert not(use_cv != (config["buffer_args"]["batch_aug"] > 1)), \
         "Currently not legal to have batch aug > 1 and use_cv = True"
     import utils.bz_utils as bzu
     from training.phase2_utils import (
         CoordConverter,
         ReplayBuffer,
+        ReplayBufferDisk,
         LocationLoss,
         load_birdview_model,
         setup_image_model
     )
-    replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=config['use_cv'])
-    if config['resume_episode'] > 0:
+    buffer_type = config["buffer_args"]["type"]
+    if buffer_type == "standard":
+        replay_buffer = ReplayBuffer(**config["buffer_args"], use_cv=use_cv)
+    elif buffer_type == "disk" and config["resume_episode"] < 0:
+        replay_buffer = ReplayBufferDisk(path=config["log_dir"], use_cv=use_cv, **config["buffer_args"])
+
+    if config['resume_episode'] >= 0:
         print("Resuming from previous run. Setting up replay buffer from episode {}".format(config["resume_episode"]))
-        print("Loading images, cmds, speeds and targets")
-        image_data = torch.load(
+        if buffer_type == "standard":
+            print("Loading images, cmds, speeds and targets")
+            image_data = torch.load(
             Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(config["resume_episode"]))
+            print("Loading birdview images")
+            birdview_data = torch.load(
+                Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(config["resume_episode"]))
 
-        print("Loading birdview images")
-        birdview_data = torch.load(
-            Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(config["resume_episode"]))
+            assert len(birdview_data) == len(image_data), "Length of image-data and birdview-data is not the same."
 
-        assert len(birdview_data) == len(image_data), "Length of image-data and birdview-data is not the same."
+            print("Loading replay buffer weights")
+            replay_buffer_weights = torch.load(
+                Path(config['log_dir']) / 'replay_buffer-{}_weights.saved'.format(config["resume_episode"]))
 
-        print("Loading replay buffer weights")
-        replay_buffer_weights = torch.load(
-            Path(config['log_dir']) / 'replay_buffer-{}_weights.saved'.format(config["resume_episode"]))
+            assert len(replay_buffer_weights) == len(image_data), "dint find enough weights"
 
-        assert len(replay_buffer_weights) == len(image_data), "dint find enough weights"
-
-        for i in range(len(image_data)):
-            input_data, cmd, speed, target = image_data[i]
-            birdview = birdview_data[i]
-            weight = replay_buffer_weights[i]
-            if config['use_cv']:
-                rgb, semseg, depth = input_data
-                replay_buffer.add_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
-            else:
-                replay_buffer.add_data(input_data, cmd, speed, target, birdview, weight)
+            for i in range(len(image_data)):
+                input_data, cmd, speed, target = image_data[i]
+                birdview = birdview_data[i]
+                weight = replay_buffer_weights[i]
+                if use_cv:
+                    rgb, semseg, depth = input_data
+                    replay_buffer.add_data(rgb, cmd, speed, target, birdview, weight, semseg, depth)
+                else:
+                    replay_buffer.add_data(input_data, cmd, speed, target, birdview, weight)
+        else:
+            replay_buffer = torch.load(Path(config["log_dir"]) / "replay_buffer_episode_{}.saved".format(config["resume_episode"]))
 
         replay_buffer.normalized = True
         print("Replay buffer complete.")
@@ -346,7 +356,7 @@ def train(config):
 
     criterion = LocationLoss()
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False,
-                            use_cv=config['use_cv'])
+                            use_cv=use_cv)
 
     teacher_net = load_birdview_model(
         "resnet18",
@@ -362,23 +372,24 @@ def train(config):
     for episode in tqdm.tqdm(range(begin_episode, config['max_episode'] + begin_episode), initial=begin_episode,
                              desc='Episode'):
         rollout(replay_buffer, coord_converter, net, teacher_net, episode, episode_length=config['episode_length'],
-                image_agent_kwargs=image_agent_kwargs, port=config['port'], use_cv=config["use_cv"])
-
-        print("Saving images, cmds, speeds and targets from replay buffer...")
-        torch.save(replay_buffer.get_image_data(),
-                   Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
-
-        print("Saving birdview images from replay buffer...")
-        torch.save(replay_buffer.get_birdview_data(),
-                   Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(episode))
-        print("Rollout-data saved.", sep="")
+                image_agent_kwargs=image_agent_kwargs, port=config['port'], use_cv=use_cv)
         # import pdb; pdb.set_trace()
         _train(replay_buffer, net, teacher_net, criterion, coord_converter, bzu.log, config, episode)
-
-        print("Saving replay buffer weights ...")
-        torch.save(replay_buffer.get_weights(),
-                   Path(config["log_dir"]) / "replay_buffer-{}_weights.saved".format(episode))
-        print("Replay buffer weights for episode number (", episode, ") saved.", sep="")
+        if buffer_type == "standard":
+            print("Storing images, cmds, speeds and targets from replay buffer...")
+            torch.save(replay_buffer.get_image_data(),
+                           Path(config['log_dir']) / 'replay_buffer-{}_image_data.saved'.format(episode))
+            print("Storing birdview images from replay buffer...")
+            torch.save(replay_buffer.get_birdview_data(),
+                       Path(config['log_dir']) / 'replay_buffer-{}_birdview_data.saved'.format(episode))
+            print("Storing replay buffer weights ...")
+            torch.save(replay_buffer.get_weights(),
+                       Path(config["log_dir"]) / "replay_buffer-{}_weights.saved".format(episode))
+            print("Replay buffer weights for episode number (", episode, ") saved.", sep="")
+        else:
+            print("Storing replay buffer from episode {}".format(episode))
+            torch.save(replay_buffer, Path(config["log_dir"]) / "replay_buffer_episode_{}.saved".format(episode))
+        print("Rollout-data stored.", sep="")
 
 
 if __name__ == '__main__':
@@ -389,16 +400,16 @@ if __name__ == '__main__':
     parser.add_argument('--episode_length', type=int, default=1000)
     parser.add_argument('--epoch_per_episode', type=int, default=5)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--buffer_type', default="normal", choices=["standard", "disk"])
     parser.add_argument('--speed_noise', type=float, default=0.0)
     parser.add_argument('--batch_aug', type=int, default=1)
     parser.add_argument('--use_cv', default=False, action='store_true',
                         help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
     # resume flag will continue from the chosen epoch with the saved replay buffer. Assumes identical config
-    parser.add_argument('--resume_episode', type=int, default=0)
+    parser.add_argument('--resume_episode', type=int, default=-1)
 
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--perception_ckpt', default="")
-    parser.add_argument('--n_semantic_classes', type=int, default=6)
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -426,19 +437,19 @@ if __name__ == '__main__':
             'phase1_ckpt': parsed.ckpt,
             'resume_episode': parsed.resume_episode,
             'optimizer_args': {'lr': parsed.lr},
-            'use_cv': parsed.use_cv,
             'buffer_args': {
                 'buffer_limit': 200000,
                 'batch_aug': parsed.batch_aug,
                 'augment': 'super_hard',
                 'aug_fix_iter': 819200,
+                'type' : parsed.buffer_type,
             },
             'model_args': {
                 'model': 'image_ss',
                 'image_ckpt' : parsed.ckpt,
                 'backbone': BACKBONE,
                 'perception_ckpt': parsed.perception_ckpt,
-                'n_semantic_classes':parsed.n_semantic_classes
+                'input_channel': 13 if parsed.use_cv else 3
                 },
             'agent_args': {
                 'camera_args': {
@@ -447,7 +458,8 @@ if __name__ == '__main__':
                     'fov': 90,
                     'world_y': 1.4,
                     'fixed_offset': parsed.fixed_offset,
-                }
+                },
+                'use_cv': parsed.use_cv
             },
             'teacher_args' : {
                 'model_path': parsed.teacher_path,
