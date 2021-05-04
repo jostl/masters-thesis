@@ -30,6 +30,7 @@ from training.phase2_utils import setup_image_model, show_rgb_semseg_depth
 from models.birdview import BirdViewPolicyModelSS
 from utils.train_utils import one_hot
 from utils.datasets.image_lmdb import get_image as load_data
+from perception.utils.segmentation_labels import DEFAULT_CLASSES
 
 BACKBONE = 'resnet34'
 GAP = 5
@@ -164,7 +165,10 @@ def repeat(a, repeats, dim=0):
 def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_train, config, is_first_epoch, display=False):
     if is_train:
         desc = 'Train'
-        net.train()
+        if config["agent_args"]["trained_cv"]:
+            net.image_model.train()
+        else:
+            net.train()
     else:
         desc = 'Val'
         net.eval()
@@ -201,8 +205,14 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
         
         with torch.no_grad():
             _teac_location, _teac_locations = teacher_net(birdview, speed, command)
-        
-        _pred_location, _pred_locations = net(image, speed, command)
+
+        if config["agent_args"]["trained_cv"]:
+            (_pred_location, _pred_locations), semseg_pred, depth_pred = net(image, speed, command)
+            imgs = torch.cat([image, semseg_pred,depth_pred], dim=1)
+        else:
+            _pred_location, _pred_locations = net(image, speed, command)
+        if display and image.shape[1] > 3 and imgs is None:
+            imgs = image
         pred_location = coord_converter(_pred_location)
         pred_locations = coord_converter(_pred_locations)
         
@@ -246,8 +256,11 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
 
 def train(config):
     use_cv = config["agent_args"]["use_cv"]
-    assert not(use_cv != (config['data_args']['batch_aug'] > 1)),\
+    trained_cv = config["agent_args"]["trained_cv"]
+    assert not (use_cv and trained_cv), "Cannot use ground truth CV and trained CV at the same time."
+    assert not(use_cv and (config['data_args']['batch_aug'] > 1)),\
         "Currently not legal to have batch aug > 1 and use_cv = True"
+
     bzu.log.init(config['log_dir'])
     bzu.log.save_config(config)
     teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
@@ -256,7 +269,7 @@ def train(config):
     criterion = LocationLoss()
 
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True,
-                            use_cv=use_cv)
+                            use_cv=use_cv, trained_cv=trained_cv)
 
     teacher_net = BirdViewPolicyModelSS(teacher_config['model_args']['backbone'], pretrained=True, all_branch=True).to(
         config['device'])
@@ -272,10 +285,14 @@ def train(config):
         train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0)
 
         if epoch in SAVE_EPOCHS:
-            torch.save(
+            if config["agent_args"]["trained_cv"]:
+                torch.save(
+                        net.image_model.state_dict(),
+                        str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
+            else:
+                torch.save(
                     net.state_dict(),
                     str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
-
         bzu.log.end_epoch()
 
 
@@ -288,7 +305,6 @@ if __name__ == '__main__':
     # Model
     parser.add_argument('--pretrained', action='store_true')
     parser.add_argument('--ckpt', required=True)
-    parser.add_argument('--perception_ckpt', default="")
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -305,6 +321,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--use_cv', default=False, action='store_true',
                         help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
+    parser.add_argument('--trained_cv', default=False, action='store_true')
 
     # Optimizer.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -333,8 +350,7 @@ if __name__ == '__main__':
             'image_ckpt' : parsed.ckpt,
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
-            'perception_ckpt': parsed.perception_ckpt,
-            'input_channel': 13 if parsed.use_cv else 3
+            'input_channel': len(DEFAULT_CLASSES) + 5 if parsed.use_cv or parsed.trained_cv else 3
         },
         'teacher_args': {
             'model_path': parsed.teacher_path,
@@ -347,7 +363,8 @@ if __name__ == '__main__':
                 'world_y': 1.4,
                 'fixed_offset': 4.0,
             },
-            'use_cv': parsed.use_cv
+            'use_cv': parsed.use_cv,
+            'trained_cv':parsed.trained_cv
         }
     }
 

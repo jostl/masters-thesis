@@ -28,7 +28,6 @@ from bird_view.utils import carla_utils as cu
 from utils.train_utils import one_hot
 from benchmark import make_suite
 from perception.utils.segmentation_labels import DEFAULT_CLASSES
-from perception.utils.helpers import get_segmentation_tensor
 BACKBONE = 'resnet34'
 GAP = 5
 N_STEP = 5
@@ -48,6 +47,8 @@ def crop_birdview(birdview, dx=0, dy=0):
 
     return birdview
 
+def worker_init_fn(worker_id):
+    np.random.seed(np.random.get_state()[1][0] + worker_id)
 
 def get_control(agent_control, teacher_control, episode, beta=0.95):
     """
@@ -185,9 +186,13 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
 
         optimizer = torch.optim.Adam(net.parameters(), lr=1e-4)
 
-        net.train()
+        if config["agent_args"]["trained_cv"]:
+            net.image_model.train()
+        else:
+            net.train()
         replay_buffer.init_new_weights()
-        loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=2, pin_memory=True, shuffle=True, drop_last=True)
+        loader = torch.utils.data.DataLoader(replay_buffer, batch_size=config['batch_size'], num_workers=2,
+                                             pin_memory=True, shuffle=True, drop_last=True, worker_init_fn=worker_init_fn)
 
         description = "Epoch " + str(epoch)
         for i, (idxes, image, command, speed, target, birdview) in tqdm.tqdm(enumerate(loader), desc=description):
@@ -286,14 +291,21 @@ def _train(replay_buffer, net, teacher_net, criterion, coord_converter, logger, 
         logger.end_epoch()
 
     if episode in SAVE_EPISODES:
-        torch.save(net.state_dict(),
-            str(Path(config['log_dir']) / ('model-%d.th' % episode)))
+        if config["agent_args"]["trained_cv"]:
+            torch.save(net.image_model.state_dict(),
+                str(Path(config['log_dir']) / ('model-%d.th' % episode)))
+        else:
+            torch.save(net.state_dict(),
+                       str(Path(config['log_dir']) / ('model-%d.th' % episode)))
 
 
 def train(config):
     use_cv = config["agent_args"]["use_cv"]
-    assert not(use_cv != (config["buffer_args"]["batch_aug"] > 1)), \
-        "Currently not legal to have batch aug > 1 and use_cv = True"
+    trained_cv = config["agent_args"]["trained_cv"]
+    assert not (use_cv and trained_cv), \
+        "Cannout use ground truth CV and trained CV at the same time."
+    assert not(use_cv and (config["buffer_args"]["batch_aug"] > 1)), \
+        "Currently not legal to have batch aug > 1 and use_cv = True."
     import utils.bz_utils as bzu
     from training.phase2_utils import (
         CoordConverter,
@@ -356,7 +368,7 @@ def train(config):
 
     criterion = LocationLoss()
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch=True, imagenet_pretrained=False,
-                            use_cv=use_cv)
+                            use_cv=use_cv, trained_cv=trained_cv, return_cv_preds=False)
 
     teacher_net = load_birdview_model(
         "resnet18",
@@ -405,11 +417,12 @@ if __name__ == '__main__':
     parser.add_argument('--batch_aug', type=int, default=1)
     parser.add_argument('--use_cv', default=False, action='store_true',
                         help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
+    parser.add_argument('--trained_cv', default=False, action='store_true')
+
     # resume flag will continue from the chosen epoch with the saved replay buffer. Assumes identical config
     parser.add_argument('--resume_episode', type=int, default=-1)
 
     parser.add_argument('--ckpt', required=True)
-    parser.add_argument('--perception_ckpt', default="")
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -448,8 +461,7 @@ if __name__ == '__main__':
                 'model': 'image_ss',
                 'image_ckpt' : parsed.ckpt,
                 'backbone': BACKBONE,
-                'perception_ckpt': parsed.perception_ckpt,
-                'input_channel': 13 if parsed.use_cv else 3
+                'input_channel': len(DEFAULT_CLASSES) + 5 if parsed.use_cv else 3
                 },
             'agent_args': {
                 'camera_args': {
@@ -459,7 +471,8 @@ if __name__ == '__main__':
                     'world_y': 1.4,
                     'fixed_offset': parsed.fixed_offset,
                 },
-                'use_cv': parsed.use_cv
+                'use_cv': parsed.use_cv,
+                'trained_cv':parsed.trained_cv
             },
             'teacher_args' : {
                 'model_path': parsed.teacher_path,
