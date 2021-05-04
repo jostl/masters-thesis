@@ -178,8 +178,8 @@ class ImageAgent(Agent):
         self.turn_control = CustomController(pid)
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
 
-        self.engine_brake_threshold = 1.75
-        self.brake_threshold = 1.6
+        self.engine_brake_threshold = 2
+        self.brake_threshold = 2
 
         self.last_brake = -1
         self.use_cv = use_cv
