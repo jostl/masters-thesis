@@ -35,21 +35,22 @@ def semseg_rgb_to_red_channel_bgr(input_img, n_classes=len(DEFAULT_CLASSES)+1):
     return output_img
 
 def main():
-    test = "test2"
+    test = "test1"
     data_folder = Path("data/perception") / test
-    save_folder = Path("data/perception/predictions/semseg/unet_resnet50_weighted_2.5") / (test)
+    save_folder = Path("data/perception/predictions/depth/unet_resnet34") / (test)
 
     save_folder.mkdir(parents=True, exist_ok=False)
-    #targets = DepthDataset(data_folder, max_n_instances=None)
-    targets = SegmentationDataset(data_folder, semantic_classes=DEFAULT_CLASSES, max_n_instances=None)
+    targets = DepthDataset(data_folder, max_n_instances=None)
+    #targets = SegmentationDataset(data_folder, semantic_classes=DEFAULT_CLASSES, max_n_instances=None)
 
     dataloader = DataLoader(targets, batch_size=1, shuffle=False, num_workers=0)
 
-    model = createUNetResNetSemSeg(n_classes=(len(DEFAULT_CLASSES)+1))
+    model = createUNetResNet()
+    #model = createUNetResNetSemSeg(n_classes=(len(DEFAULT_CLASSES)+1))
     #model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES)+1, backbone="resnet101")
     #model = createFCN(outputchannels=len(DEFAULT_CLASSES)+1, backbone="resnet101")
     #model_weights = Path("models/perception/unet_best_weights.pt")
-    model_weights = Path("training_logs/perception/unet_resnet50_weighted_tlights_2.5/epoch-30.pt")
+    model_weights = Path("models/perception/unet_resnet34_pretrained_best_weights.pt")
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     assert torch.cuda.is_available()
@@ -71,7 +72,7 @@ def main():
         img_save_path = str((save_folder / img_name).absolute())
         #image_gray = cv2.cvtColor(outputs[0].cpu().numpy().transpose(1, 2, 0), cv2.COLOR_BGR2GRAY)
 
-        if False:
+        if True:
             #print("Saving depth prediction to:", img_save_path)
             #cv2.imwrite(img_save_path, outputs[0].cpu().byte().numpy().transpose(1, 2, 0))
             save_image(outputs[0], img_save_path)
@@ -100,9 +101,9 @@ def main():
             img = display_images_horizontally(display_images, fig_width=10, fig_height=2, display=True,
                                               title=img_name, subplot_titles=subtitles)
 
-        if True:
+        if False:
             #print("Saving semseg prediction to:", img_save_path)
-            red_channel_img = semseg_rgb_to_red_channel_bgr(outputs[0].cpu().numpy().transpose(1, 2, 0))
+            red_channel_img = semseg_rgb_to_red_channel_bgr(outputs["out"][0].cpu().numpy().transpose(1, 2, 0))
             cv2.imwrite(img_save_path, red_channel_img)
 
 

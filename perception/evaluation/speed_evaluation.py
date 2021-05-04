@@ -4,8 +4,9 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from perception.training.models import createDeepLabv3
-from perception.training.train_semseg import create_dataloaders
+from perception.training.models import createDeepLabv3, createFCN, createUNetResNet, createUNet, createUNetResNetSemSeg, createMidas
+from perception.training.train_semseg import create_dataloaders as create_semseg_dataloaders
+from perception.training.train_depth import create_dataloaders as create_depth_dataloaders
 from perception.utils.segmentation_labels import DEFAULT_CLASSES
 
 
@@ -36,24 +37,29 @@ def time_predictions(model: torch.nn.Module, dataloader):
 
 
 if __name__=="__main__":
-    validation_set_size = 0.2
-    max_n_instances = 100
+    validation_set_size = 0.1
+    max_n_instances = 666  # gives 500 measurements
     batch_size = 1
     semantic_classes = DEFAULT_CLASSES
     augment_strategy = "super_hard"
     path = "data/perception/test1"
-    backbone = "mobilenet"
+    #backbone = "mobilenet"
+    #model = createFCN(outputchannels=len(DEFAULT_CLASSES) + 1, backbone="resnet101")
+    model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone="mobilenet", pretrained=True)
+    #model = createUNetResNetSemSeg(n_classes=len(DEFAULT_CLASSES) + 1)
+    dataloaders = create_semseg_dataloaders(path=path, validation_set_size=validation_set_size,
+                                    semantic_classes=semantic_classes,
+                                    batch_size=batch_size, max_n_instances=max_n_instances,
+                                    augment_strategy=augment_strategy, num_workers=0)
 
-    model = createDeepLabv3(outputchannels=len(DEFAULT_CLASSES) + 1, backbone=backbone, pretrained=True)
-    dataloaders = create_dataloaders(path=path, validation_set_size=validation_set_size,
-                                     semantic_classes=semantic_classes,
-                                     batch_size=batch_size, max_n_instances=max_n_instances,
-                                     augment_strategy=augment_strategy, num_workers=0)
+    #model = createMidas(True)
+    #dataloaders = create_depth_dataloaders(path=path, validation_set_size=validation_set_size, batch_size=batch_size,
+    #                                       max_n_instances=max_n_instances, augment_strategy=augment_strategy, num_workers=0)
 
     times = time_predictions(model, dataloaders["train"])
 
     print("Slowest pred:", np.max(times))
     print("Fastest pred:", np.min(times))
     print("Average prediction time:", np.average(times))
-    print("Average stable prediction time:", np.average(times[10:]))
+    print("Average stable prediction time:", np.average(times[100:]))
 
