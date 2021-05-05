@@ -517,7 +517,7 @@ class ReplayBufferDisk(torch.utils.data.Dataset):
 def setup_image_model(backbone, imagenet_pretrained, device,  semantic_classes=DEFAULT_CLASSES,
                       image_ckpt="", use_cv=False, trained_cv=False, all_branch=False, return_cv_preds=True, **kwargs):
     if trained_cv:
-        net = FullModel(image_backbone=backbone, image_pretrained=imagenet_pretrained, all_branch=all_branch,
+        net = FullModel(backbone=backbone, image_pretrained=imagenet_pretrained, all_branch=all_branch,
                         image_ckpt=image_ckpt)
         net.return_cv_preds = return_cv_preds
     elif use_cv:

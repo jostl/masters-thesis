@@ -91,7 +91,7 @@ class ImagePolicyModelSS(common.ResnetBase):
 
 
 class FullModel(nn.Module):
-    def __init__(self, image_backbone, all_branch, image_pretrained=False, image_ckpt=""):
+    def __init__(self, backbone, all_branch=False, image_pretrained=False, image_ckpt="", **kwargs):
         super(FullModel, self).__init__()
         #self.depth_model = createUNet()
         #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_best_weights.pt"))'
@@ -114,7 +114,7 @@ class FullModel(nn.Module):
             mean=[0.485, 0.456, 0.406],
             std=[0.229, 0.224, 0.225]
         )
-        self.image_model = ImagePolicyModelSS(image_backbone,
+        self.image_model = ImagePolicyModelSS(backbone,
                                               pretrained=image_pretrained,
                                               all_branch=all_branch, input_channel=len(DEFAULT_CLASSES) + 5)
         if image_ckpt:
@@ -148,7 +148,11 @@ class ImageAgent(Agent):
         self.gap = gap
 
         if steer_points is None:
+            # original LBC steer points
             steer_points = {"1": 4, "2": 3, "3": 2, "4": 2}
+
+            # reproduce steer points
+            #steer_points = {"1": 4, "2": 3, "3": 2, "4": 3}
 
         if pid is None:
             # Original LBC pid
@@ -159,18 +163,36 @@ class ImageAgent(Agent):
                 "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
             }
 
-            # Reproduction model-10 pid
+            # CV_OLD pid
+            #pid = {
+            #    "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+            #}
+
+            # Reproduction pid
+            #pid = {
+            #    "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+            #}
+
+            # Reproduction_wrong_pid model-10 pid
+            #pid = {
+            #    "1": {"Kp": 0.7, "Ki": 0.25, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+            #}
+
+            # Old Reproduction model-10 pid
             #pid = {
             #    "1": {"Kp": 0.85, "Ki": 0.20, "Kd": 0.0},  # Left
             #    "2": {"Kp": 0.6, "Ki": 0.10, "Kd": 0.0},  # Right
             #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
             #    "4": {"Kp": 2.0, "Ki": 0.2, "Kd": 0.1},  # Follow
-            #}
-            #pid2 = {
-            #    "1": {"Kp": 0.7, "Ki": 0.1, "Kd": 0.0},  # Left
-            #    "2": {"Kp": 0.55, "Ki": 0.1, "Kd": 0.0},  # Right
-            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
-            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
             #}
 
 
@@ -214,6 +236,15 @@ class ImageAgent(Agent):
                 model_pred, _ = self.model(image, _speed, _command)
             else:
                 model_pred = self.model(image, _speed, _command)
+
+            # handle trained cv returned tuple
+            if type(model_pred) == tuple and not self.model.all_branch:
+                # take the images and put them into observations dict for visualization
+                observations["semseg"] = model_pred[1][0].cpu().numpy().transpose(1, 2, 0)
+                observations["depth"] = model_pred[2][0].cpu().numpy().transpose(1, 2, 0)
+
+                # control
+                model_pred = model_pred[0]
 
         model_pred = model_pred.squeeze().detach().cpu().numpy()
         

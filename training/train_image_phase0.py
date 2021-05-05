@@ -315,7 +315,7 @@ if __name__ == '__main__':
             'num_workers': parsed.num_workers,
         },
         'model_args': {
-            'model': 'image_ss',
+            'model': "full_model" if parsed.trained_cv else 'image_ss',
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
             'input_channel': len(DEFAULT_CLASSES) + 5 if parsed.use_cv or parsed.trained_cv else 3

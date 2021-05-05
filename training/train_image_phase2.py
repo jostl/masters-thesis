@@ -458,7 +458,7 @@ if __name__ == '__main__':
                 'type' : parsed.buffer_type,
             },
             'model_args': {
-                'model': 'image_ss',
+                'model': "full_model" if parsed.trained_cv else 'image_ss',
                 'image_ckpt' : parsed.ckpt,
                 'backbone': BACKBONE,
                 'input_channel': len(DEFAULT_CLASSES) + 5 if parsed.use_cv else 3
