@@ -142,20 +142,20 @@ def _paint(observations, control, diagnostic, debug, env, show=False, use_cv=Fal
         y = int(Y + y * 4)
         birdview[x-R:x+R+1,y-R:y+R+1] = [0, 155, 155]
 
-    ox, oy = observations['orientation']
-    rot = np.array([
-        [ox, oy],
-        [-oy, ox]])
-    u = observations['node'] - observations['position'][:2]
-    v = observations['next'] - observations['position'][:2]
-    u = rot.dot(u)
-    x, y = u
+    #ox, oy = observations['orientation']
+    #rot = np.array([
+    #    [ox, oy],
+    #    [-oy, ox]])
+    #u = observations['node'] - observations['position'][:2]
+    #v = observations['next'] - observations['position'][:2]
+    #u = rot.dot(u)
+    #x, y = u
     #x = int(X - x * 4)
     #y = int(Y + y * 4)
-    v = rot.dot(v)
-    x, y = v
+    #v = rot.dot(v)
+    #x, y = v
     #x = int(X - x * 4)
-    # = int(Y + y * 4)
+    #y = int(Y + y * 4)
 
     if 'big_cam' in observations:
         _write('Network input/output', 1, 0, canvas=rgb)
@@ -194,8 +194,8 @@ def _paint(observations, control, diagnostic, debug, env, show=False, use_cv=Fal
 
         depth = cv2.normalize(observations["depth"].copy(), None, alpha=0, beta=255,
                               norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+
         depth = np.uint8(depth)
-        #depth = np.uint8(observations["depth"]).copy()
         depth = np.expand_dims(depth, axis=2)
         depth = np.repeat(depth, 3, axis=2)
         full = _stick_together_and_fill(full, depth)
