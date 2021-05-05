@@ -196,7 +196,7 @@ def compare_models(data_folder, segmentation_models, depth_models, batch_size=1,
 
 if __name__ == "__main__":
 
-    test = "test1"
+    test = "test2"
     # location of where to find training, test1, test2
     data_folder = Path("data/perception") / test
     predictions_folder = Path("data/perception/predictions")
@@ -209,20 +209,20 @@ if __name__ == "__main__":
                            ("deeplabv3-mobilenet", predictions_folder / "semseg/deeplabv3_mobilenet" / test),
                            ("deeplabv3-resnet50", predictions_folder / "semseg/deeplabv3_resnet50" / test),
                            ("deeplabv3-resnet101", predictions_folder / "semseg/deeplabv3_resnet101" / test),
-                           ("semantic-test1 (ground truf)", predictions_folder / "semantic_test1"),
-                           ("semantic-test2 (ground truf)", predictions_folder / "semantic_test2")]
+                           ]
+                           #("semantic-test1 (ground truf)", predictions_folder / "semantic_test1"),
+                           #("semantic-test2 (ground truf)", predictions_folder / "semantic_test2")]
 
     # lagres på formatet (Navn, lokasjon, invert_pixels_in_loading)
     # ("test1-depth", data_folder / "depth", False)
     depth_models = [("midas-small", predictions_folder / "depth/midas_small" / test, True),
                     ("midas-large", predictions_folder / "depth/midas_large" / test, True),
                     ("UNet", predictions_folder / "depth/unet" / test, False),
-                    ("UNet-resnet34", predictions_folder / "depth/unet_resnet34" / test, False),
-                    ("depth-test1-inverse", predictions_folder / "depth_test1", True),
-                    ("depth-test1", predictions_folder / "depth_test1", False),
-                    ("depth-test2-inverse", predictions_folder / "depth_test2", True),
-                    ("depth-test2", predictions_folder / "depth_test2", False)
+                    ("UNet-resnet34", predictions_folder / "depth/unet_resnet34" / test, False)
                     ]
+                    #("depth-test1", predictions_folder / "depth_test1", False),
+                    #("depth-test2", predictions_folder / "depth_test2", False)
+                    #]
 
-    compare_models(data_folder, segmentation_models, depth_models, batch_size=10, max_n_instances=20)  # TODO sett opp max_n_instances
+    compare_models(data_folder, segmentation_models, depth_models, batch_size=20, max_n_instances=None)
 

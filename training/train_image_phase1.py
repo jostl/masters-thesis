@@ -180,7 +180,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
     tick = time.time()
     
     import torch.distributions as tdist
-    noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
+    #noiser = tdist.Normal(torch.tensor(0.0), torch.tensor(config['speed_noise']))
     imgs = None
     for i, (image, birdview, location, command, speed) in iterator:
         image = image.to(config['device'])
@@ -346,7 +346,7 @@ if __name__ == '__main__':
             'num_workers': parsed.num_workers,
         },
         'model_args': {
-            'model': 'image_ss',
+            'model': "full_model" if parsed.trained_cv else 'image_ss',
             'image_ckpt' : parsed.ckpt,
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
