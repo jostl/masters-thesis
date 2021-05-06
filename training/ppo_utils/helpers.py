@@ -61,7 +61,7 @@ def get_reward(goal_suite: PointGoalSuite, speed, alpha=1, beta=1, phi=250, delt
     return speed_reward() + distance_penalty() + infraction_penalty()
 
 
-def _paint(observations, control, diagnostic, reward, debug, env):
+def _paint(observations, control, diagnostic, reward, action_std, debug, env):
     WHITE = (255, 255, 255)
     RED = (255, 0, 0)
     CROP_SIZE = 192
@@ -116,7 +116,6 @@ def _paint(observations, control, diagnostic, reward, debug, env):
         4: 'FOLLOW',
     }.get(observations['command'], '???')
 
-    _reward = round(reward, 2)
 
     if 'big_cam' in observations:
         fontsize = 0.8
@@ -125,11 +124,11 @@ def _paint(observations, control, diagnostic, reward, debug, env):
 
     _write('Command: ' + _command, 1, 0, fontsize=fontsize)
     _write('Velocity: %.1f' % np.linalg.norm(observations['velocity']), 2, 0, fontsize=fontsize)
-    _write('Reward: %.1f' % _reward, 3, 0, fontsize=fontsize)
-    _write('Steer: %.2f' % control.steer, 4, 0, fontsize=fontsize)
-    _write('Throttle: %.2f' % control.throttle, 5, 0, fontsize=fontsize)
-    _write('Brake: %.1f' % control.brake, 6, 0, fontsize=fontsize)
-
+    _write('Steer: %.2f' % control.steer, 3, 0, fontsize=fontsize)
+    _write('Throttle: %.2f' % control.throttle, 4, 0, fontsize=fontsize)
+    _write('Brake: %.1f' % control.brake, 5, 0, fontsize=fontsize)
+    _write('Reward: %.1f' % reward, 6, 0, fontsize=fontsize)
+    _write('Action std: %.2f' % action_std, 7, 0, fontsize=fontsize)
     _write('Collided: %s' % diagnostic['collided'], 1, 6, fontsize=fontsize)
     _write('Invaded: %s' % diagnostic['invaded'], 2, 6, fontsize=fontsize)
     _write('Lights Ran: %d/%d' % (env.traffic_tracker.total_lights_ran, env.traffic_tracker.total_lights), 3, 6,

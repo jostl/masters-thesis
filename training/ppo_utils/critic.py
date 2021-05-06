@@ -25,8 +25,8 @@ class BirdViewCritic(common.ResnetBase):
                 nn.Linear(64 * 48 * 48, 200),
                 nn.BatchNorm1d(200),
                 nn.ReLU(),
-                nn.Linear(100, 25),
-                nn.BatchNorm1d(200),
+                nn.Linear(200, 25),
+                nn.BatchNorm1d(25),
                 nn.ReLU(),
                 nn.Linear(25, 1)
             ) for _ in range(4)

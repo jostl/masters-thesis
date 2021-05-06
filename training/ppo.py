@@ -124,7 +124,7 @@ def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000
                 progress.update(1)
                 time_steps += 1
                 if show:
-                    _paint(observations, control, diagnostic, reward, image_agent.debug, env)
+                    _paint(observations, control, diagnostic, reward, image_agent.action_std, image_agent.debug, env)
 
                 if len(data) >= max_rollout_length:
                     break
@@ -340,8 +340,7 @@ def main():
                epoch_per_episode, gamma=gamma, lmbda=lmbda, clip_ratio=clip_ratio, batch_size=batch_size,
                num_workers=num_workers, c1=c1, c2=c2, critic_writer=critic_writer)
         torch.save(image_agent.action_std, path / "action_std{}".format(episode))
-        if episode % action_std_decay_frequency == 0:
-            image_agent.decay_action_std()
+        image_agent.decay_action_std()
         replay_buffer.clear_buffer()
 
 
