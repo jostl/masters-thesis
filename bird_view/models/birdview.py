@@ -90,10 +90,10 @@ class BirdViewAgent(Agent):
         
         if pid is None:
             pid = {
-                "1" : {"Kp": 1.0, "Ki": 0.1, "Kd":0}, # Left
-                "2" : {"Kp": 1.0, "Ki": 0.1, "Kd":0}, # Right
-                "3" : {"Kp": 0.8, "Ki": 0.1, "Kd":0}, # Straight
-                "4" : {"Kp": 0.8, "Ki": 0.1, "Kd":0}, # Follow
+                "1": {"Kp": 1.0, "Ki": 0.1, "Kd": 0},  # Left
+                "2": {"Kp": 1.0, "Ki": 0.1, "Kd": 0},  # Right
+                "3": {"Kp": 0.8, "Ki": 0.1, "Kd": 0},  # Straight
+                "4": {"Kp": 0.8, "Ki": 0.1, "Kd": 0},  # Follow
             }
             
         self.turn_control = CustomController(pid)

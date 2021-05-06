@@ -36,7 +36,8 @@ from utils.datasets.birdview_lmdb import get_birdview as load_data
 BACKBONE = 'resnet18'
 GAP = 5
 N_STEP = 5
-SAVE_EPOCHS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 512, 768, 1000]
+#SAVE_EPOCHS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 512, 768, 1000]
+SAVE_EPOCHS = list(range(1000))
 
 class LocationLoss(torch.nn.Module):
     def __init__(self, w=192, h=192, choice='l2'):

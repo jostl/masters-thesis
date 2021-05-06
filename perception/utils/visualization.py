@@ -158,9 +158,9 @@ def plot_image(image, title="", cmap="binary"):
     plt.show()
 
 
-def plot_segmentation(image: np.ndarray):
+def plot_segmentation(image: np.ndarray, title=None):
     _, _, n_classes = image.shape
     class_colors = get_segmentation_colors(n_classes=n_classes, class_indxs=DEFAULT_CLASSES)
     semantic_image_rgb = get_rgb_segmentation(image, class_colors=class_colors) / 255
-    plot_image(semantic_image_rgb)
+    plot_image(semantic_image_rgb, title=title)
     plt.show()

@@ -144,7 +144,7 @@ class NoisyAgent(RoamingAgentMine):
 
     def run_step(self, observations):
         self.steps += 1
-
+        
         last_status = self.state
         num_steps, next_state = self.params[self.state]
         real_control = super().run_step(observations)
@@ -192,9 +192,15 @@ def get_episode(env, params):
 
     agent = NoisyAgent(env)
     agent.set_route(env._start_pose.location, env._target_pose.location)
-
+    print("Start id: {}, Target id: {}".format(start, target))
+    
+    i = 0
     # Real loop.
     while len(data) < params.frames_per_episode and not env.is_success() and not env.collided:
+        i += 1
+        if i % 50 == 0:
+            env.move_spectator_to_player()
+        
         for _ in range(params.frame_skip):
             env.tick()
 

@@ -161,8 +161,8 @@ _add('FullTown02-noweather', n_vehicles=15, weathers=[1])
 _add("DataCollectionTown01")
 
 # Debug suites, used for validating routes in the simulator
-_add("DebugTown01", weathers=[1])
-_add("DebugTown02", weathers=[2])
+_add("DebugTown01-v1", weathers=WEATHER_1, n_vehicles=0, n_pedestrians=0)
+_add("DebugTown02-v1", weathers=WEATHER_1, n_vehicles=0, n_pedestrians=0)
 
 _aliases = {
         'town1': [
@@ -209,7 +209,23 @@ _aliases = {
         'dense-np': [
             'NoCrashTown01-v5-np', 'NoCrashTown01-v6-np',
             'NoCrashTown02-v5-np', 'NoCrashTown02-v6-np',
-            ]
+            ],
+        'custom': [
+            'NoCrashTown02-v1', 'NoCrashTown02-v2',
+            'NoCrashTown02-v3', 'NoCrashTown02-v4',
+            'NoCrashTown02-v5', 'NoCrashTown02-v6',
+            'NoCrashTown01-v1', 'NoCrashTown01-v2',
+            'NoCrashTown01-v3', 'NoCrashTown01-v4',
+            'NoCrashTown01-v5', 'NoCrashTown01-v6',
+            ],
+        #'custom': [
+        #    'NoCrashTown02-v1', 'NoCrashTown02-v2',
+        #    'NoCrashTown02-v3', 'NoCrashTown02-v4',
+        #    'NoCrashTown02-v5', 'NoCrashTown02-v6',
+        #    'NoCrashTown01-v1', 'NoCrashTown01-v2',
+        #    'NoCrashTown01-v3', 'NoCrashTown01-v4',
+        #    'NoCrashTown01-v5', 'NoCrashTown01-v6',
+        #],
         }
 
 _aliases['all'] = _aliases['town1'] + _aliases['town2']

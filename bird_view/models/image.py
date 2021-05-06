@@ -9,9 +9,9 @@ from . import common
 from .agent import Agent
 from .controller import CustomController, PIDController
 from .controller import ls_circle
-from perception.perception_model import MobileNetUNet
 from perception.utils.segmentation_labels import DEFAULT_CLASSES
 from perception.utils.helpers import get_segmentation_tensor
+from perception.training.models import createUNet, createUNetResNetSemSeg, createUNetResNet
 CROP_SIZE = 192
 STEPS = 5
 COMMANDS = 4
@@ -91,21 +91,48 @@ class ImagePolicyModelSS(common.ResnetBase):
 
 
 class FullModel(nn.Module):
-    def __init__(self, n_semantic_classes: int, image_backbone, image_pretrained, all_branch):
+    def __init__(self, backbone, all_branch=False, image_pretrained=False, image_ckpt="", **kwargs):
         super(FullModel, self).__init__()
+        #self.depth_model = createUNet()
+        #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_best_weights.pt"))'
+        self.depth_model = createUNetResNet()
+        self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_resnet34_pretrained_best_weights.pt"))
+        self.depth_model.eval()
 
-        self.perception = MobileNetUNet(n_semantic_classes)
-        self.image_model = ImagePolicyModelSS(image_backbone,
+        self.semseg_model = createUNetResNetSemSeg(len(DEFAULT_CLASSES) + 1)
+        self.semseg_model.load_state_dict(torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_5_epoch-29.pt"))
+        self.semseg_model.eval()
+
+        self.return_cv_preds = True
+
+        for param in self.depth_model.parameters():
+            param.requires_grad = False
+        for param in self.semseg_model.parameters():
+            param.requires_grad = False
+
+        self.normalize_rgb = common.NormalizeV2(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+        self.image_model = ImagePolicyModelSS(backbone,
                                               pretrained=image_pretrained,
-                                              all_branch=all_branch, input_channel=n_semantic_classes + 1)
+                                              all_branch=all_branch, input_channel=len(DEFAULT_CLASSES) + 5)
+        if image_ckpt:
+            self.image_model.load_state_dict(torch.load(image_ckpt))
         self.all_branch = all_branch
 
-    def forward(self, image, velocity, command):
-        semantic_seg_pred, depth_pred = self.perception(image)
+    def forward(self, rgb_raw, velocity, command):
 
-        perception = torch.cat([semantic_seg_pred, depth_pred], dim=1)
-
-        return self.image_model(perception, velocity, command)
+        rgb_norm = self.normalize_rgb(rgb_raw)
+        with torch.no_grad():
+            dept_pred = torch.clip(self.depth_model(rgb_norm), 0, 1)
+            semseg_pred = self.semseg_model(rgb_norm)
+        semseg_argmax = torch.argmax(semseg_pred, dim=1)
+        semseg_pred = nn.functional.one_hot(semseg_argmax, num_classes=len(DEFAULT_CLASSES) + 1).permute(0, 3, 1, 2)
+        _input = torch.cat([rgb_norm, semseg_pred, dept_pred], dim=1)
+        if self.return_cv_preds:
+            return self.image_model(_input, velocity, command), semseg_pred, dept_pred
+        return self.image_model(_input, velocity, command)
 
 
 class ImageAgent(Agent):
@@ -121,9 +148,14 @@ class ImageAgent(Agent):
         self.gap = gap
 
         if steer_points is None:
+            # original LBC steer points
             steer_points = {"1": 4, "2": 3, "3": 2, "4": 2}
 
+            # reproduce steer points
+            #steer_points = {"1": 4, "2": 3, "3": 2, "4": 3}
+
         if pid is None:
+            # Original LBC pid
             pid = {
                 "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
                 "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
@@ -131,15 +163,52 @@ class ImageAgent(Agent):
                 "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
             }
 
+            # CV_OLD pid
+            #pid = {
+            #    "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+            #}
+
+            # Reproduction pid
+            #pid = {
+            #    "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+            #}
+
+            # Reproduction_wrong_pid model-10 pid
+            #pid = {
+            #    "1": {"Kp": 0.7, "Ki": 0.25, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+            #}
+
+            # Old Reproduction model-10 pid
+            #pid = {
+            #    "1": {"Kp": 0.85, "Ki": 0.20, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.6, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 2.0, "Ki": 0.2, "Kd": 0.1},  # Follow
+            #}
+
+
         self.steer_points = steer_points
         self.turn_control = CustomController(pid)
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
 
-        self.engine_brake_threshold = 2.0
-        self.brake_threshold = 2.0
+        self.engine_brake_threshold = 2
+        self.brake_threshold = 2
 
         self.last_brake = -1
         self.use_cv = use_cv
+        self.normalize_rgb = common.NormalizeV2(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
 
     def run_step(self, observations, teaching=False):
         rgb = observations['rgb'].copy()
@@ -155,7 +224,8 @@ class ImageAgent(Agent):
             if self.use_cv:
                 semseg = self.transform(get_segmentation_tensor(observations['semseg'].copy(),
                                                                 classes=DEFAULT_CLASSES)).float().to(self.device)
-                depth = self.transform(observations['depth'].copy()).float().to(self.device)
+                depth = self.transform(observations['depth'].copy() / 255).float().to(self.device)
+                _rgb = self.normalize_rgb(_rgb)
                 # Stack RGB, semseg and depth.
                 # Need to unsqueeze in order to make prediction, because 'image' must be a batch with a single instance
                 image = torch.cat([_rgb.squeeze(), semseg, depth], dim=0).unsqueeze(0)
@@ -166,6 +236,15 @@ class ImageAgent(Agent):
                 model_pred, _ = self.model(image, _speed, _command)
             else:
                 model_pred = self.model(image, _speed, _command)
+
+            # handle trained cv returned tuple
+            if type(model_pred) == tuple and not self.model.all_branch:
+                # take the images and put them into observations dict for visualization
+                observations["semseg"] = model_pred[1][0].cpu().numpy().transpose(1, 2, 0)
+                observations["depth"] = model_pred[2][0].cpu().numpy().transpose(1, 2, 0)
+
+                # control
+                model_pred = model_pred[0]
 
         model_pred = model_pred.squeeze().detach().cpu().numpy()
         

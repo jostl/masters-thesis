@@ -41,13 +41,18 @@ def _agent_factory_hack(model_path, config, autopilot):
     model_to_class = {
             'birdview_dian': (birdview.BirdViewPolicyModelSS, birdview.BirdViewAgent),
             'image_ss': (image.ImagePolicyModelSS, image.ImageAgent),
+            'full_model': (image.FullModel, image.ImageAgent),
             }
 
     model_class, agent_class = model_to_class[model_name]
-
     model = model_class(**config['model_args'])
-    model.load_state_dict(torch.load(str(model_path)))
-    model.eval()
+
+    if config["agent_args"]["trained_cv"]:
+        model.image_model.load_state_dict(torch.load(str(model_path)))
+        model.image_model.eval()
+    else:
+        model.load_state_dict(torch.load(str(model_path)))
+        model.eval()
 
     agent_args = config.get('agent_args', dict())
     agent_args['model'] = model
@@ -55,7 +60,8 @@ def _agent_factory_hack(model_path, config, autopilot):
     return lambda: agent_class(**agent_args)
 
 
-def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, show=False, move_camera=False):
+def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, show=False, move_camera=False,
+        use_cv=False, trained_cv=False):
     log_dir = model_path.parent
     config = bzu.load_json(str(log_dir / 'config.json'))
 
@@ -67,11 +73,11 @@ def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, s
         benchmark_dir = log_dir / 'benchmark' / model_path.stem / ('%s_seed%d' % (suite_name, seed))
         benchmark_dir.mkdir(parents=True, exist_ok=True)
 
-        with make_suite(suite_name, port=port, big_cam=big_cam) as env:
+        with make_suite(suite_name, port=port, big_cam=big_cam, use_cv=use_cv) as env:
             agent_maker = _agent_factory_hack(model_path, config, autopilot)
 
             run_benchmark(agent_maker, env, benchmark_dir, seed, autopilot, resume, max_run=max_run, show=show,
-                          move_camera=move_camera)
+                          move_camera=move_camera, use_cv=use_cv, trained_cv=trained_cv)
 
         elapsed = time.time() - tick
         total_time += elapsed
@@ -93,7 +99,12 @@ if __name__ == '__main__':
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--max-run', type=int, default=3)
     parser.add_argument('--move-camera', action="store_true")
+    parser.add_argument('--use-cv', action="store_true")
+    parser.add_argument('--trained-cv', action="store_true")
     args = parser.parse_args()
 
+    assert not (args.use_cv and args.trained_cv), "Cannot use ground truth CV and trained CV at the same time"
+
     run(Path(args.model_path), args.port, args.suite, args.big_cam, args.seed, args.autopilot, args.resume,
-        max_run=args.max_run, show=args.show, move_camera=args.move_camera)
+        max_run=args.max_run, show=args.show, move_camera=args.move_camera, use_cv=args.use_cv,
+        trained_cv=args.trained_cv)

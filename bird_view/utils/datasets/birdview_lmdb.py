@@ -38,6 +38,10 @@ class BirdViewDataset(Dataset):
             crop_x_jitter=5, crop_y_jitter=5, angle_jitter=5,
             down_ratio=4, gaussian_radius=1.0, max_frames=None):
 
+        # these are saved to be used for pickling and unpickling
+        self.dataset_path = dataset_path
+        self.max_frames = max_frames
+
         # These typically don't change.
         self.img_size = img_size
         self.crop_size = crop_size
@@ -54,7 +58,7 @@ class BirdViewDataset(Dataset):
         self.gaussian_radius = gaussian_radius
 
         self._name_map = {}
-        self.file_map = {}
+        #self.file_map = {}
         self.idx_map = {}
 
         self.bird_view_transform = transforms.ToTensor()
@@ -76,7 +80,7 @@ class BirdViewDataset(Dataset):
                     break
 
                 self._name_map[offset+i] = full_path
-                self.file_map[offset+i] = txn
+                #self.file_map[offset+i] = txn
                 self.idx_map[offset+i] = i
 
             n_episodes += 1
@@ -87,10 +91,14 @@ class BirdViewDataset(Dataset):
         print('%s: %d frames, %d episodes.' % (dataset_path, len(self), n_episodes))
 
     def __len__(self):
-        return len(self.file_map)
+        return len(self._name_map)
 
     def __getitem__(self, idx):
-        lmdb_txn = self.file_map[idx]
+        lmdb_txn = lmdb.open(
+                    self._name_map[idx],
+                    max_readers=1, readonly=True,
+                    lock=False, readahead=False, meminit=False).begin(write=False)
+        #lmdb_txn = self.file_map[idx]
         index = self.idx_map[idx]
 
         bird_view = np.frombuffer(lmdb_txn.get(('birdview_%04d'%index).encode()), np.uint8).reshape(320,320,7)
@@ -129,7 +137,11 @@ class BirdViewDataset(Dataset):
         orientations = []
 
         for dt in range(self.gap, self.gap*(self.n_step+1), self.gap):
-            lmdb_txn = self.file_map[idx]
+            lmdb_txn = lmdb.open(
+                self._name_map[idx],
+                max_readers=1, readonly=True,
+                lock=False, readahead=False, meminit=False).begin(write=False)
+            #lmdb_txn = self.file_map[idx]
             index =self.idx_map[idx]+dt
 
             f_measurement = np.frombuffer(lmdb_txn.get(("measurements_%04d"%index).encode()), np.float32)
@@ -244,10 +256,14 @@ class Wrap(Dataset):
         return self.data[np.random.randint(len(self.data))]
 
 
+def worker_init_fn(worker_id):
+    np.random.seed(np.random.get_state()[1][0] + worker_id)
+
+
 def _dataloader(data, batch_size, num_workers):
     return DataLoader(
             data, batch_size=batch_size, num_workers=num_workers,
-            shuffle=True, drop_last=True, pin_memory=True)
+            shuffle=True, drop_last=True, pin_memory=True, worker_init_fn=worker_init_fn)
 
 
 def get_birdview(

@@ -32,14 +32,14 @@ import utils.bz_utils as bzu
 from models.birdview import BirdViewPolicyModelSS
 from utils.train_utils import one_hot
 from utils.datasets.image_lmdb import get_image as load_data
-
+from perception.utils.segmentation_labels import DEFAULT_CLASSES
 BACKBONE = 'resnet34'
 GAP = 5
 N_STEP = 5
 PIXELS_PER_METER = 5
 CROP_SIZE = 192
-SAVE_EPOCHS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 512, 768, 1000]
-
+#SAVE_EPOCHS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 384, 512, 768, 1000]
+SAVE_EPOCHS = list(range(1000))
 
 class CoordConverter():
     def __init__(self, w=384, h=160, fov=90, world_y=1.4, fixed_offset=4.0, device='cuda'):
@@ -161,7 +161,10 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
                   display=False):
     if is_train:
         desc = 'Train'
-        net.train()
+        if config["trained_cv"]:
+            net.image_model.train()
+        else:
+            net.train()
     else:
         desc = 'Val'
         net.eval()
@@ -176,17 +179,21 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
     for i, (image, birdview, location, command, speed) in iterator:
         image = image.to(config['device'])
 
-        if display and image.shape[1] > 3 and imgs is None:
-            imgs = image
-
         birdview = birdview.to(config['device'])
         command = one_hot(command).to(config['device'])
         speed = speed.to(config['device'])
         
         with torch.no_grad():
             _teac_location = teacher_net(birdview, speed, command)
-        
-        _pred_location = net(image, speed, command)
+
+        if config["trained_cv"]:
+            _pred_location, semseg_pred, depth_pred = net(image, speed, command)
+            imgs = torch.cat([image, semseg_pred,depth_pred], dim=1)
+        else:
+            _pred_location = net(image, speed, command)
+
+        if display and image.shape[1] > 3 and imgs is None:
+            imgs = image
         pred_location = (_pred_location + 1) * coord_converter._img_size/2
         teac_location = coord_converter(_teac_location)
         
@@ -229,6 +236,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
 
 
 def train(config):
+    assert not(config["use_cv"] and config["trained_cv"]), "Cannot use ground truth CV and trained CV at the same time."
     bzu.log.init(config['log_dir'])
     bzu.log.save_config(config)
     teacher_config = bzu.log.load_config(config['teacher_args']['model_path'])
@@ -236,7 +244,7 @@ def train(config):
     data_train, data_val = load_data(**config['data_args'], use_cv=config['use_cv'])
     criterion = LocationLoss(**config['camera_args'])
     net = setup_image_model(**config["model_args"], device=config["device"], all_branch = False,
-                            use_cv=config["use_cv"])
+                            use_cv=config["use_cv"], trained_cv=config["trained_cv"])
 
     teacher_net = BirdViewPolicyModelSS(teacher_config['model_args']['backbone']).to(config['device'])
     teacher_net.load_state_dict(torch.load(config['teacher_args']['model_path']))
@@ -251,9 +259,14 @@ def train(config):
         train_or_eval(coord_converter, criterion, net, teacher_net, data_val, None, False, config, epoch == 0)
 
         if epoch in SAVE_EPOCHS:
-            torch.save(
-                net.state_dict(),
-                str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
+            if config["trained_cv"]:
+                torch.save(
+                    net.image_model.state_dict(),
+                    str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
+            else:
+                torch.save(
+                    net.state_dict(),
+                    str(Path(config['log_dir']) / ('model-%d.th' % epoch)))
 
         bzu.log.end_epoch()
 
@@ -265,7 +278,6 @@ if __name__ == '__main__':
 
     # Model
     parser.add_argument('--pretrained', action='store_true')
-    parser.add_argument('--perception_ckpt', default="")
 
     # Teacher.
     parser.add_argument('--teacher_path', required=True)
@@ -279,6 +291,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--use_cv', default=False, action='store_true',
                         help="Use ground-truth computer vision (cv) images (semantic segmentation and depth estimation)")
+    parser.add_argument('--trained_cv', default=False, action='store_true')
 
     # Optimizer.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -291,7 +304,8 @@ if __name__ == '__main__':
         'max_epoch': parsed.max_epoch,
         'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
         'optimizer_args': {'lr': parsed.lr},
-        'use_cv' : parsed.use_cv,
+        'use_cv': parsed.use_cv,
+        'trained_cv': parsed.trained_cv,
         'data_args': {
             'dataset_dir': parsed.dataset_dir,
             'batch_size': parsed.batch_size,
@@ -301,10 +315,10 @@ if __name__ == '__main__':
             'num_workers': parsed.num_workers,
         },
         'model_args': {
-            'model': 'image_ss',
+            'model': "full_model" if parsed.trained_cv else 'image_ss',
             'imagenet_pretrained': parsed.pretrained,
             'backbone': BACKBONE,
-            'perception_ckpt': parsed.perception_ckpt,
+            'input_channel': len(DEFAULT_CLASSES) + 5 if parsed.use_cv or parsed.trained_cv else 3
         },
         'camera_args': {
             'w': 384,
