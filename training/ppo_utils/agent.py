@@ -184,7 +184,6 @@ class PPOImageAgent(Agent):
         # Get the log of the probability density function evaluated at each 'action' in this batch
         action_logprob = dist.log_prob(action.squeeze().view((batch_size, n_waypoints * 2)))
 
-
         _action_mean_view = action_mean_view.cpu().detach().numpy()[0]
         _action_logprob = action_logprob.cpu().detach().numpy()[0]
 

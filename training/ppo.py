@@ -31,7 +31,7 @@ from benchmark import make_suite
 from bird_view.utils import carla_utils as cu
 from training.phase2_utils import setup_image_model
 from training.ppo_utils.agent import PPOImageAgent
-from training.ppo_utils.critic import BirdViewCritic
+from training.ppo_utils.critic import BirdViewCritic, BirdViewCritic2
 from training.ppo_utils.replay_buffer import PPOReplayBuffer
 from training.ppo_utils.helpers import rtgs, gae, _paint, get_reward
 from tensorboardX import SummaryWriter
@@ -313,7 +313,7 @@ def main():
 
 
     # Setup critic network and criterion
-    critic_net = BirdViewCritic(backbone=critic_backbone, device=device, all_branch=True, input_channel=8).to(device)
+    critic_net = BirdViewCritic2(backbone=critic_backbone, device=device, all_branch=True, input_channel=8).to(device)
     if critic_ckpt:
         critic_net.load_state_dict(torch.load(critic_ckpt))
     critic_criterion = nn.MSELoss()
