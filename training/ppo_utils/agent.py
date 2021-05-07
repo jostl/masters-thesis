@@ -43,9 +43,14 @@ class PPOImageAgent(Agent):
         self.gap = gap
 
         if steer_points is None:
+            # original LBC steer points
             steer_points = {"1": 4, "2": 3, "3": 2, "4": 2}
 
+            # reproduction wrong_pid steer points
+            #steer_points = {"1": 4, "2": 3, "3": 2, "4": 3}
+
         if pid is None:
+            # original LBC pid
             pid = {
                 "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
                 "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
@@ -53,11 +58,25 @@ class PPOImageAgent(Agent):
                 "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
             }
 
+            # Reproduction_wrong_pid model-10 pid
+            #pid = {
+            #    "1": {"Kp": 0.7, "Ki": 0.25, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 0.75, "Ki": 0.45, "Kd": 0.0},  # Follow
+            #}
+
         self.steer_points = steer_points
         self.turn_control = CustomController(pid)
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
+
+        # original LBC thresholds
         self.engine_brake_threshold = 2.0
         self.brake_threshold = 2.0
+
+        # reproduction wrong_pid thresholds
+        #self.engine_brake_threshold = 1.5
+        #self.brake_threshold = 1.5
 
         self.last_brake = -1
 

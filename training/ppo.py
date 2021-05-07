@@ -65,9 +65,10 @@ def one_hot(x, num_digits=4, start=1):
 
 
 def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000, rollouts_per_episode=5, port=2000,
-            planner="new", show=False, include_hero=False, **kwargs):
+            planner="new", show=False, include_hero=False, writer=None, **kwargs):
     progress = tqdm(range(max_rollout_length * rollouts_per_episode), desc='Frame')
     data = [[] for _ in range(rollouts_per_episode)]
+
     with make_suite('NoCrashTown01-v1', port=port, planner=planner) as env:
         for i in range(rollouts_per_episode):
             print("Episode", episode, ", rollout", i)
@@ -85,7 +86,7 @@ def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000
             env.tick()
             time_steps = 0
             total_rewards = 0
-            while not env.is_success() and not env.collided and not env.traffic_tracker.ran_light and \
+            while not env.is_success() and not env.collided and \
                     len(data[i]) <= max_rollout_length:
                 observations = env.get_observations(include_hero=include_hero)
 
@@ -134,6 +135,10 @@ def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000
             print("Collided: ", env.collided)
             print("Success: ", env.is_success())
             env.clean_up()
+
+            if writer is not None:
+                writer.add_scalar("rollout reward", total_rewards, (episode * rollouts_per_episode + i))
+
         env_settings = env._world.get_settings()
         env_settings.no_rendering_mode = True
         env._world.apply_settings(env_settings)
@@ -290,8 +295,7 @@ def main():
 
     # INITIALIZING
     path = Path(log_dir)
-    if not path.exists():
-        path.mkdir()
+    path.mkdir(parents=True, exist_ok=resume_episode > 0)
 
     replay_buffer = PPOReplayBuffer()
     reward_params = {'alpha': alpha, 'beta': beta, 'phi': phi, 'delta': delta}
@@ -337,8 +341,9 @@ def main():
     for episode in range(resume_episode, max_episode):
         episode_rewards = 0
         rewards, time_steps = rollout(replay_buffer, image_agent, critic_net, episode, max_rollout_length,
-                                      rollouts_per_episode=rollouts_per_episode,
-                                      port=port, show=show, include_hero=include_hero, **reward_params)
+                                      rollouts_per_episode=rollouts_per_episode, port=port, show=show,
+                                      include_hero=include_hero, writer=reward_writer,
+                                      **reward_params)
         total_time_steps += time_steps
         episode_rewards += rewards
         reward_writer.add_scalar("episode_rewards", episode_rewards, episode)
