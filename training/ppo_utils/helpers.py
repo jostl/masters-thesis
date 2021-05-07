@@ -49,19 +49,36 @@ def get_reward(goal_suite: PointGoalSuite, speed, alpha=1, beta=1, phi=250, delt
             return -phi * speed - delta
         return 0
 
-    def distance_penalty():
+    def distance_penalty_old():
         next_waypoint_location = goal_suite._next  # Get the location of the next waypoint
         player_location = goal_suite._player.get_location()
         distance = player_location.distance(next_waypoint_location)  # Get distance between actor and next waypoint
         return -beta * distance
 
+    def distance_penalty():
+        current_optimal_waypoint = goal_suite.node
+        next_optimal_waypoint = goal_suite._next
+        player_waypoint = goal_suite._player.get_location()
+
+        p1 = np.array([current_optimal_waypoint.x, current_optimal_waypoint.y])
+        p2 = np.array([next_optimal_waypoint.x, next_optimal_waypoint.y])
+        p3 = np.array([player_waypoint.x, player_waypoint.y])
+
+        # calculate distance from point p3 down on the line between p1 and p2
+        # - this will be the lateral deviation from current position to optimal line
+        distance = np.abs(np.cross(p2 - p1, p3 - p1)) / np.linalg.norm(p2 - p1)
+
+        return -beta * distance, distance
+
     def speed_reward():
         return alpha * speed
 
-    return speed_reward() + distance_penalty() + infraction_penalty()
+    penalty, lateral_distance = distance_penalty()
+
+    return speed_reward() + penalty + infraction_penalty(), lateral_distance
 
 
-def _paint(observations, control, diagnostic, reward, action_std, debug, env):
+def _paint(observations, control, diagnostic, reward, action_std, debug, env, lateral_deviation):
     WHITE = (255, 255, 255)
     RED = (255, 0, 0)
     CROP_SIZE = 192
@@ -129,6 +146,8 @@ def _paint(observations, control, diagnostic, reward, action_std, debug, env):
     _write('Brake: %.1f' % control.brake, 5, 0, fontsize=fontsize)
     _write('Reward: %.1f' % reward, 6, 0, fontsize=fontsize)
     _write('Action std: %.2f' % action_std, 7, 0, fontsize=fontsize)
+    _write('Line deviation: %.2f' % lateral_deviation, 8, 0, fontsize=fontsize)
+
     _write('Collided: %s' % diagnostic['collided'], 1, 6, fontsize=fontsize)
     _write('Invaded: %s' % diagnostic['invaded'], 2, 6, fontsize=fontsize)
     _write('Lights Ran: %d/%d' % (env.traffic_tracker.total_lights_ran, env.traffic_tracker.total_lights), 3, 6,
@@ -178,20 +197,20 @@ def _paint(observations, control, diagnostic, reward, action_std, debug, env):
         y = int(Y + y * 4)
         birdview[x - R:x + R + 1, y - R:y + R + 1] = [0, 155, 155]
 
-    ox, oy = observations['orientation']
-    rot = np.array([
-        [ox, oy],
-        [-oy, ox]])
-    u = observations['node'] - observations['position'][:2]
-    v = observations['next'] - observations['position'][:2]
-    u = rot.dot(u)
-    x, y = u
-    x = int(X - x * 4)
-    y = int(Y + y * 4)
-    v = rot.dot(v)
-    x, y = v
-    x = int(X - x * 4)
-    y = int(Y + y * 4)
+    #ox, oy = observations['orientation']
+    #rot = np.array([
+    #    [ox, oy],
+    #    [-oy, ox]])
+    #u = observations['node'] - observations['position'][:2]
+    #v = observations['next'] - observations['position'][:2]
+    #u = rot.dot(u)
+    #x, y = u
+    #x = int(X - x * 4)
+    #y = int(Y + y * 4)
+    #v = rot.dot(v)
+    #x, y = v
+    #x = int(X - x * 4)
+    #y = int(Y + y * 4)
 
     if 'big_cam' in observations:
         _write('Network input/output', 1, 0, canvas=rgb)

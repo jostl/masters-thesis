@@ -101,8 +101,8 @@ def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000
                 birdview_img = crop_birdview(observations["birdview"], dx=-10)
                 state_value = critic.evaluate(*critic.prepare_data(birdview_img, speed, command))
 
-                reward = get_reward(env, speed, **kwargs)
-                is_terminal = env.collided or env.is_failure() or env.is_success() or env.traffic_tracker.ran_light
+                reward, lateral_deviation = get_reward(env, speed, **kwargs)
+                is_terminal = env.collided or env.is_failure() or env.is_success()
 
                 if time_steps % 30 == 0:
                     env.move_spectator_to_player()
@@ -123,8 +123,10 @@ def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000
                 total_rewards += reward
                 progress.update(1)
                 time_steps += 1
+
                 if show:
-                    _paint(observations, control, diagnostic, reward, image_agent.action_std, image_agent.debug, env)
+                    _paint(observations, control, diagnostic, reward, image_agent.action_std, image_agent.debug, env,
+                           lateral_deviation)
 
                 if len(data) >= max_rollout_length:
                     break
