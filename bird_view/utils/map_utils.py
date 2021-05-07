@@ -592,7 +592,7 @@ class ModuleWorld(object):
         return (
             self.hero_map_image,
             self.hero_lane_image,
-            # self.hero_self_image,
+            self.hero_self_image,
             self.hero_vehicle_image,
             self.hero_walker_image,
             self.hero_traffic_image,
@@ -1106,13 +1106,13 @@ class ModuleWorld(object):
 
             # self.hero_map_surface.blit
 
-            # self.hero_self_surface.fill(COLOR_BLACK)
+            self.hero_self_surface.fill(COLOR_BLACK)
             self.hero_map_surface.fill(COLOR_BLACK)
             self.hero_vehicle_surface.fill(COLOR_BLACK)
             self.hero_walker_surface.fill(COLOR_BLACK)
             self.hero_traffic_light_surface.fill(COLOR_BLACK)
 
-            # self.hero_self_surface.blit(self.self_surface, (-offset[0], -offset[1]))
+            self.hero_self_surface.blit(self.self_surface, (-offset[0], -offset[1]))
             self.hero_map_surface.blit(self.map_image.map_surface, (-offset[0], -offset[1]))
             self.hero_lane_surface.blit(self.map_image.lane_surface, (-offset[0], -offset[1]))
             self.hero_vehicle_surface.blit(self.vehicle_surface, (-offset[0], -offset[1]))
@@ -1133,7 +1133,7 @@ class ModuleWorld(object):
             rotated_vehicle_surface = rz(self.hero_vehicle_surface, angle, 0.9).convert()
             rotated_walker_surface = rz(self.hero_walker_surface, angle, 0.9).convert()
             rotated_traffic_surface = rz(self.hero_traffic_light_surface, angle, 0.9).convert()
-            # rotated_self_surface = rz(self.hero_self_surface, angle, 0.9).convert()
+            rotated_self_surface = rz(self.hero_self_surface, angle, 0.9).convert()
 
             center = (display.get_width() / 2, display.get_height() / 2)
             rotation_map_pivot = rotated_map_surface.get_rect(center=center)
@@ -1141,7 +1141,7 @@ class ModuleWorld(object):
             rotation_vehicle_pivot = rotated_vehicle_surface.get_rect(center=center)
             rotation_walker_pivot = rotated_walker_surface.get_rect(center=center)
             rotation_traffic_pivot = rotated_traffic_surface.get_rect(center=center)
-            # rotation_self_pivot = rotated_self_surface.get_rect(center=center)
+            rotation_self_pivot = rotated_self_surface.get_rect(center=center)
 
             self.window_map_surface.blit(rotated_map_surface, rotation_map_pivot)
             self.window_lane_surface.blit(rotated_lane_surface, rotation_lane_pivot)
@@ -1149,7 +1149,7 @@ class ModuleWorld(object):
             self.window_walker_surface.blit(rotated_walker_surface, rotation_walker_pivot)
             self.window_traffic_light_surface.blit(
                     rotated_traffic_surface, rotation_traffic_pivot)
-            # self.window_self_surface.blit(rotated_self_surface, rotation_self_pivot)
+            self.window_self_surface.blit(rotated_self_surface, rotation_self_pivot)
 
             make_image = lambda x: np.swapaxes(pygame.surfarray.array3d(x), 0, 1).mean(axis=-1)
 
@@ -1161,8 +1161,8 @@ class ModuleWorld(object):
             self.hero_traffic_image = np.swapaxes(
                     pygame.surfarray.array3d(self.window_traffic_light_surface),
                     0, 1)
-            # self.hero_self_image = np.swapaxes(
-            # pygame.surfarray.array3d(self.window_self_surface),0,1).mean(axis=-1)
+            self.hero_self_image = np.swapaxes(
+            pygame.surfarray.array3d(self.window_self_surface),0,1).mean(axis=-1)
         else:
             # Translation offset
             translation_offset = (
@@ -1354,8 +1354,7 @@ class Wrapper(object):
 
     @classmethod
     def get_observations(cls):
-        road, lane, vehicle, pedestrian, traffic = cls.world_module.get_rendered_surfaces()
-
+        road, lane, hero, vehicle, pedestrian, traffic = cls.world_module.get_rendered_surfaces()
         result = cls.world_module.get_hero_measurements()
         result.update({
                 'road': np.uint8(road),
@@ -1363,6 +1362,7 @@ class Wrapper(object):
                 'vehicle': np.uint8(vehicle),
                 'pedestrian': np.uint8(pedestrian),
                 'traffic': np.uint8(traffic),
+                'hero': np.uint8(hero),
                 })
 
         pygame.display.flip()

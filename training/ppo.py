@@ -65,8 +65,7 @@ def one_hot(x, num_digits=4, start=1):
 
 
 def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000, rollouts_per_episode=5, port=2000,
-            planner="new", show=False,
-            **kwargs):
+            planner="new", show=False, include_hero=False, **kwargs):
     progress = tqdm(range(max_rollout_length * rollouts_per_episode), desc='Frame')
     data = [[] for _ in range(rollouts_per_episode)]
     with make_suite('NoCrashTown01-v1', port=port, planner=planner) as env:
@@ -88,7 +87,8 @@ def rollout(replay_buffer, image_agent, critic, episode, max_rollout_length=4000
             total_rewards = 0
             while not env.is_success() and not env.collided and not env.traffic_tracker.ran_light and \
                     len(data[i]) <= max_rollout_length:
-                observations = env.get_observations()
+                observations = env.get_observations(include_hero=include_hero)
+
                 control, action, action_logprobs = image_agent.run_step(observations)
 
                 diagnostic = env.apply_control(control)
@@ -162,13 +162,13 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
                                          pin_memory=False, shuffle=True, drop_last=True)
 
     # Connecting to server to prevent timout
-    #client = carla.Client("localhost", 2000)
-    #client.set_timeout(30)
-    #cu.set_sync_mode(client, False)
-    #world = client.load_world("town01")
+    # client = carla.Client("localhost", 2000)
+    # client.set_timeout(30)
+    # cu.set_sync_mode(client, False)
+    # world = client.load_world("town01")
     print("Training on {} examples".format(len(replay_buffer)))
     for epoch in range(epoch_per_episode):
-        #world.wait_for_tick()
+        # world.wait_for_tick()
         desc = "Episode {}, epoch {}".format(episode, epoch)
         running_critic_loss = 0
         for i, (idxes, rgb, speed, command, birdview, old_actions, old_logprobs) in tqdm(enumerate(loader), desc=desc):
@@ -214,7 +214,7 @@ def update(log_dir, replay_buffer, image_agent, optimizer, device, episode, crit
             else:
                 epoch_write_number = epoch_per_episode * episode + epoch
             critic_writer.add_scalar("epoch_loss", epoch_critic_loss, epoch_write_number)
-    #cu.set_sync_mode(client, False)
+    # cu.set_sync_mode(client, False)
 
     # Set the new policy as the old policy
     image_agent.policy_old.load_state_dict(image_agent.model.state_dict())
@@ -271,6 +271,7 @@ def main():
     critic_ckpt = str(config["CRITIC"]["critic_ckpt"])
     critic_lr = float(config["CRITIC"]["learning_rate"])
     critic_backbone = str(config["CRITIC"]["backbone"])
+    include_hero = str(config["CRITIC"]["include_hero"]) == "True"
 
     # Check if everything is legal
     assert computer_vision in {"None", "gt",
@@ -308,8 +309,11 @@ def main():
                                 min_action_std=min_action_std, action_std_decay_rate=action_std_decay_rate,
                                 **image_agent_kwargs)
 
+    # TODO: Store Agent args
+
+
     # Setup critic network and criterion
-    critic_net = BirdViewCritic(backbone=critic_backbone, device=device, all_branch=True).to(device)
+    critic_net = BirdViewCritic(backbone=critic_backbone, device=device, all_branch=True, input_channel=8).to(device)
     if critic_ckpt:
         critic_net.load_state_dict(torch.load(critic_ckpt))
     critic_criterion = nn.MSELoss()
@@ -332,7 +336,7 @@ def main():
         episode_rewards = 0
         rewards, time_steps = rollout(replay_buffer, image_agent, critic_net, episode, max_rollout_length,
                                       rollouts_per_episode=rollouts_per_episode,
-                                      port=port, show=show, **reward_params)
+                                      port=port, show=show, include_hero=include_hero, **reward_params)
         total_time_steps += time_steps
         episode_rewards += rewards
         reward_writer.add_scalar("episode_rewards", episode_rewards, episode)
