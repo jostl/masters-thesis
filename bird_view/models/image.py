@@ -91,7 +91,7 @@ class ImagePolicyModelSS(common.ResnetBase):
 
 
 class FullModel(nn.Module):
-    def __init__(self, backbone, all_branch=False, image_pretrained=False, image_ckpt="", **kwargs):
+    def __init__(self, backbone, all_branch=False, image_pretrained=False, ckpt="", **kwargs):
         super(FullModel, self).__init__()
         #self.depth_model = createUNet()
         #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_best_weights.pt"))'
@@ -117,8 +117,8 @@ class FullModel(nn.Module):
         self.image_model = ImagePolicyModelSS(backbone,
                                               pretrained=image_pretrained,
                                               all_branch=all_branch, input_channel=len(DEFAULT_CLASSES) + 5)
-        if image_ckpt:
-            self.image_model.load_state_dict(torch.load(image_ckpt))
+        if ckpt:
+            self.image_model.load_state_dict(torch.load(ckpt))
         self.all_branch = all_branch
 
     def forward(self, rgb_raw, velocity, command):
