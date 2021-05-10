@@ -100,7 +100,8 @@ def _paint(observations, control, diagnostic, debug, env, show=False, use_cv=Fal
     _write('Goal: %.1f' % diagnostic['distance_to_goal'], 4, 6, fontsize=fontsize)
 
     _write('Time: %d' % env._tick, 5, 6, fontsize=fontsize)
-    _write('FPS: %.2f' % (env._tick / (diagnostic['wall'])), 6, 6, fontsize=fontsize)
+    _write('Time limit: %d' % env._timeout, 6, 6, fontsize=fontsize)
+    _write('FPS: %.2f' % (env._tick / (diagnostic['wall'])), 7, 6, fontsize=fontsize)
 
     for x, y in debug.get('locations', []):
         x = int(X - x / 2.0 * CROP_SIZE)
