@@ -287,11 +287,10 @@ def main():
     assert computer_vision != "gt" and computer_vision != "trained", "Not implemented yet lol"
 
     if resume_episode > 0:
-        assert actor_ckpt, "Resuming training requires actor checkpoint. " \
-                           "Actor path is empty."
-
-        assert critic_ckpt, "Resuming training requires critic checkpoint. " \
-                            "Critic path is empty."
+        actor_ckpt = Path(log_dir) / ('actor-%d.th' % (resume_episode))
+        critic_ckpt = Path(log_dir) / ('critic-%d.th' % (resume_episode))
+        action_std = torch.load(Path(log_dir) / "action_std{}".format(resume_episode))
+        resume_episode += 1
 
     # INITIALIZING
     path = Path(log_dir)
@@ -299,9 +298,7 @@ def main():
 
     replay_buffer = PPOReplayBuffer()
     reward_params = {'alpha': alpha, 'beta': beta, 'phi': phi, 'delta': delta}
-    if resume_episode > 0:
-        action_std = torch.load(Path(log_dir) / "action_std{}".format(resume_episode))
-        resume_episode += 1
+
     # Setup actor networks
     actor_net = setup_image_model(backbone=actor_backbone, image_ckpt=actor_ckpt, device=device,
                                   imagenet_pretrained=actor_imagenet_pretrained, all_branch=True)

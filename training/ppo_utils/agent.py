@@ -71,8 +71,8 @@ class PPOImageAgent(Agent):
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
 
         # original LBC thresholds
-        self.engine_brake_threshold = 2.0
-        self.brake_threshold = 2.0
+        self.engine_brake_threshold = 1
+        self.brake_threshold = 1
 
         # reproduction wrong_pid thresholds
         #self.engine_brake_threshold = 1.5
@@ -80,7 +80,14 @@ class PPOImageAgent(Agent):
 
         self.last_brake = -1
 
-        self.action_var = torch.full((10,), action_std * action_std)
+        a = np.linspace(min_action_std, action_std, 5)
+        b = np.zeros((5, 2))
+        b[:, 0] = a
+        b[:, 1] = a
+        b = np.ndarray.flatten(b)
+        b = b * b
+        self.action_var = torch.from_numpy(b).float()
+        self.action_var2 = torch.full((10,), action_std * action_std)
         self.action_std = action_std
         self.min_action_std = min_action_std
         self.action_std_decay_rate = action_std_decay_rate
@@ -236,3 +243,10 @@ class PPOImageAgent(Agent):
     def decay_action_std(self):
         self.action_std = max(self.action_std - self.action_std_decay_rate, self.min_action_std)
         self.action_std = round(self.action_std, 4)
+        a = np.linspace(self.min_action_std, self.action_std, 5)
+        b = np.zeros((5, 2))
+        b[:, 0] = a
+        b[:, 1] = a
+        b = np.ndarray.flatten(b)
+        b = b * b
+        self.action_var = torch.from_numpy(b).float()
