@@ -41,8 +41,10 @@ def weather_table(weather_dict, path):
 		collision_rates = collisions / totals * 100
 		timeout_rates = timeouts / totals * 100
 
-		if abs(timeout_rates + collision_rates + success_rates).all() < 99.9:
-			print("LOL!")
+		collided_and_success_rates= collided_and_success / totals * 100
+
+		for elem in abs(timeout_rates + collision_rates + success_rates - collided_and_success_rates):
+			assert 99.9 < elem < 100.1, "rates do not sum to 100"
 
 		if len(seeds) > 1:
 			table_data.append([weather, "%.1f ± %.1f" % (np.mean(success_rates), np.std(success_rates, ddof=1)),
@@ -52,10 +54,10 @@ def weather_table(weather_dict, path):
 							   "%.1f ± %.1f" % (np.mean(lights_ran_rates), np.std(lights_ran_rates, ddof=1)),
 							   "%d" % np.sum(collided_and_success)])
 		else:
-			table_data.append([weather, "%d" % np.mean(success_rates), "%d/%d" % (sum(successes), sum(totals)),
+			table_data.append([weather, "%.1f" % np.mean(success_rates), "%d/%d" % (sum(successes), sum(totals)),
 							   ','.join(sorted(seeds.keys())),
-							   "%d" % collision_rates, "%d" % timeout_rates, "%d" % lights_ran_rates,
-							   "%d" % collided_and_success])
+							   "%.1f" % collision_rates, "%.1f" % timeout_rates, "%.1f" % lights_ran_rates,
+							   "%.d" % collided_and_success])
 
 	table_data = sorted(table_data, key=lambda row: row[0])
 	table_data = [('Weather', 'Success Rate %', 'Total', 'Seeds', "Collision %", "Timeout %", "Lights ran %",
@@ -118,9 +120,9 @@ def main(path_name, separate_seeds=False, create_weather_table=False):
 				timeout_rates = timeouts / totals * 100
 
 				table_data.append(
-					[suite_name+"-seed-"+seed, "%d" % success_rates, "%d/%d" % (successes, totals),
+					[suite_name+"-seed-"+seed, "%.1f" % success_rates, "%d/%d" % (successes, totals),
 					 ','.join(seed),
-					 "%d" % collision_rates, "%d" % timeout_rates, "%d" % lights_ran_rates,
+					 "%.1f" % collision_rates, "%.1f" % timeout_rates, "%.1f" % lights_ran_rates,
 					 "%d" % collided_and_success])
 
 
@@ -142,8 +144,8 @@ def main(path_name, separate_seeds=False, create_weather_table=False):
 								   "%.1f ± %.1f"%(np.mean(lights_ran_rates), np.std(lights_ran_rates, ddof=1)),
 								   "%d"%np.sum(collided_and_success)])
 			else:
-				table_data.append([suite_name, "%d"%np.mean(success_rates), "%d/%d"%(sum(successes),sum(totals)), ','.join(sorted(seeds.keys())),
-									"%d"%collision_rates, "%d"%timeout_rates, "%d"%lights_ran_rates, "%d"%collided_and_success])
+				table_data.append([suite_name, "%.1f"%np.mean(success_rates), "%d/%d"%(sum(successes),sum(totals)), ','.join(sorted(seeds.keys())),
+									"%.1f"%collision_rates, "%.1f"%timeout_rates, "%.1f"%lights_ran_rates, "%d"%collided_and_success])
 
 	table_data = sorted(table_data, key=lambda row: row[0])
 	table_data = [('Suite Name', 'Success Rate %', 'Total', 'Seeds', "Collision %", "Timeout %", "Lights ran %", "Collided+Success")] + table_data
