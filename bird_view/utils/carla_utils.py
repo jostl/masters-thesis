@@ -417,9 +417,18 @@ class CarlaWrapper(object):
     def spawn_vehicles(self):
         SpawnActor = carla.command.SpawnActor
         SetAutoPilot = carla.command.SetAutopilot
-        blueprints = self._blueprints.filter('vehicle.*')
+        _blueprints = self._blueprints.filter('vehicle.*')
         if self.disable_two_wheels:
-            blueprints = [x for x in blueprints if int(x.get_attribute('number_of_wheels')) == 4]
+            _blueprints = [x for x in _blueprints if int(x.get_attribute('number_of_wheels')) == 4]
+
+        if True:
+            blueprints = []
+            for blueprint in _blueprints:
+                if blueprint.id != "vehicle.tesla.cybertruck":
+                    blueprints.append(blueprint)
+        else:
+            blueprints = _blueprints
+
         spawn_points = self._map.get_spawn_points()
         batch = []
         for i in range(self.n_vehicles):
