@@ -7,15 +7,20 @@ from bird_view.models.common import crop_birdview
 from benchmark.goal_suite import PointGoalSuite
 
 
-def rtgs(rewards, terminals, normalize=False):
+def rtgs(rewards, terminals, gamma, normalize=False):
     # Calculates rewards-to-go
     # Code based on https://github.com/openai/spinningup/blob/master/spinup/examples/pytorch/pg_math/2_rtg_pg.py
     n = len(rewards)
-    rewards_to_go = np.zeros_like(rewards)
+    rewards_to_go = np.zeros(n)
+    discounted_reward = 0
     for i in reversed(range(n)):
         # Logic: 'i' is an index for a state.
         # Only add rewards-to-go if 'i + 1' exist and 'i' is not a terminal state
-        rewards_to_go[i] = rewards[i] + (rewards_to_go[i + 1] if i + 1 < n and not terminals[i] else 0)
+        if terminals[i]:
+            discounted_reward = 0
+        discounted_reward = rewards[i] + gamma * discounted_reward
+        rewards_to_go[i] = discounted_reward
+        #rewards_to_go[i] = rewards[i] + (rewards_to_go[i + 1] if i + 1 < n and not terminals[i] else 0)
     if normalize:
         rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go) + 1e-7)
     return rewards_to_go
@@ -67,7 +72,8 @@ def get_reward(goal_suite: PointGoalSuite, speed, alpha=1, beta=1, phi=250, delt
         # calculate distance from point p3 down on the line between p1 and p2
         # - this will be the lateral deviation from current position to optimal line
         distance = np.abs(np.cross(p2 - p1, p3 - p1)) / np.linalg.norm(p2 - p1)
-
+        if distance > 5:
+            return - 10*distance, distance
         return -beta * distance, distance
 
     def speed_reward():
@@ -78,7 +84,7 @@ def get_reward(goal_suite: PointGoalSuite, speed, alpha=1, beta=1, phi=250, delt
     return speed_reward() + penalty + infraction_penalty(), lateral_distance
 
 
-def _paint(observations, control, diagnostic, reward, action_std, debug, env, lateral_deviation):
+def _paint(observations, control, diagnostic, reward, action_std, debug, env, lateral_deviation, distance):
     WHITE = (255, 255, 255)
     RED = (255, 0, 0)
     CROP_SIZE = 192
@@ -133,7 +139,6 @@ def _paint(observations, control, diagnostic, reward, action_std, debug, env, la
         4: 'FOLLOW',
     }.get(observations['command'], '???')
 
-
     if 'big_cam' in observations:
         fontsize = 0.8
     else:
@@ -145,7 +150,7 @@ def _paint(observations, control, diagnostic, reward, action_std, debug, env, la
     _write('Throttle: %.2f' % control.throttle, 4, 0, fontsize=fontsize)
     _write('Brake: %.1f' % control.brake, 5, 0, fontsize=fontsize)
     _write('Reward: %.1f' % reward, 6, 0, fontsize=fontsize)
-    _write('Action std: %.2f' % action_std, 7, 0, fontsize=fontsize)
+    _write('Action std: %.3f' % action_std, 7, 0, fontsize=fontsize)
     _write('Line deviation: %.2f' % lateral_deviation, 8, 0, fontsize=fontsize)
 
     _write('Collided: %s' % diagnostic['collided'], 1, 6, fontsize=fontsize)
@@ -156,7 +161,7 @@ def _paint(observations, control, diagnostic, reward, action_std, debug, env, la
 
     _write('Time: %d' % env._tick, 5, 6, fontsize=fontsize)
     _write('FPS: %.2f' % (env._tick / (diagnostic['wall'])), 6, 6, fontsize=fontsize)
-
+    _write('Chpkt dst: %.2f' % lateral_deviation, 7, 6, fontsize=fontsize)
     for x, y in debug.get('locations', []):
         x = int(X - x / 2.0 * CROP_SIZE)
         y = int(Y + y / 2.0 * CROP_SIZE)
@@ -197,20 +202,20 @@ def _paint(observations, control, diagnostic, reward, action_std, debug, env, la
         y = int(Y + y * 4)
         birdview[x - R:x + R + 1, y - R:y + R + 1] = [0, 155, 155]
 
-    #ox, oy = observations['orientation']
-    #rot = np.array([
+    # ox, oy = observations['orientation']
+    # rot = np.array([
     #    [ox, oy],
     #    [-oy, ox]])
-    #u = observations['node'] - observations['position'][:2]
-    #v = observations['next'] - observations['position'][:2]
-    #u = rot.dot(u)
-    #x, y = u
-    #x = int(X - x * 4)
-    #y = int(Y + y * 4)
-    #v = rot.dot(v)
-    #x, y = v
-    #x = int(X - x * 4)
-    #y = int(Y + y * 4)
+    # u = observations['node'] - observations['position'][:2]
+    # v = observations['next'] - observations['position'][:2]
+    # u = rot.dot(u)
+    # x, y = u
+    # x = int(X - x * 4)
+    # y = int(Y + y * 4)
+    # v = rot.dot(v)
+    # x, y = v
+    # x = int(X - x * 4)
+    # y = int(Y + y * 4)
 
     if 'big_cam' in observations:
         _write('Network input/output', 1, 0, canvas=rgb)

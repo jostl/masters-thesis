@@ -28,7 +28,7 @@ DT = 0.1
 class PPOImageAgent(Agent):
     def __init__(self, policy_old, steer_points=None, pid=None, gap=5,
                  camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, action_std=0.01,
-                 min_action_std=0.001, action_std_decay_rate = 0.0001,
+                 min_action_std=0.001, action_std_decay_rate = 0.0001, action_std_decay_frequency=10000,
                  **kwargs):
         super().__init__(**kwargs)
 
@@ -71,8 +71,8 @@ class PPOImageAgent(Agent):
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
 
         # original LBC thresholds
-        self.engine_brake_threshold = 1
-        self.brake_threshold = 1
+        self.engine_brake_threshold = 1.2
+        self.brake_threshold = 1.2
 
         # reproduction wrong_pid thresholds
         #self.engine_brake_threshold = 1.5
@@ -91,6 +91,7 @@ class PPOImageAgent(Agent):
         self.action_std = action_std
         self.min_action_std = min_action_std
         self.action_std_decay_rate = action_std_decay_rate
+        self.action_std_decay_frequency = action_std_decay_frequency
 
     def run_step(self, observations):
         rgb = observations['rgb'].copy()
