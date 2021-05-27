@@ -53,7 +53,7 @@ COLORS = [
         (39, 232, 51),
         (0, 0, 142),
         (220, 20, 60),
-        (0,255,0)
+        (0, 255, 0)
         ]
 
 
@@ -170,10 +170,10 @@ def visualize_birdview(birdview):
     6 pedestrian
     7 hero
     """
-    h, w = birdview.shape[:2]
+    h, w, c = birdview.shape
     canvas = np.zeros((h, w, 3), dtype=np.uint8)
     canvas[...] = BACKGROUND
-    for i in range(len(COLORS)):
+    for i in range(c):
         canvas[birdview[:,:,i] > 0] = COLORS[i]
 
     return canvas
@@ -423,7 +423,7 @@ class CarlaWrapper(object):
         _blueprints = self._blueprints.filter('vehicle.*')
         if self.disable_two_wheels:
             _blueprints = [x for x in _blueprints if int(x.get_attribute('number_of_wheels')) == 4]
-        if False:
+        if True:
             blueprints = []
             for blueprint in _blueprints:
                 if blueprint.id != "vehicle.tesla.cybertruck":

@@ -96,11 +96,14 @@ class FullModel(nn.Module):
         #self.depth_model = createUNet()
         #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_best_weights.pt"))'
         self.depth_model = createUNetResNet()
-        self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_resnet34_pretrained_best_weights.pt"))
+        #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_resnet34_pretrained_best_weights.pt"))
+        self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_resnet34_pretrained_retrained.pt"))
         self.depth_model.eval()
 
         self.semseg_model = createUNetResNetSemSeg(len(DEFAULT_CLASSES) + 1)
-        self.semseg_model.load_state_dict(torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_5_epoch-29.pt"))
+        #self.semseg_model.load_state_dict(torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_5_epoch-29.pt"))
+        self.semseg_model.load_state_dict(
+            torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_retrained.pt"))
         self.semseg_model.eval()
 
         self.return_cv_preds = True
