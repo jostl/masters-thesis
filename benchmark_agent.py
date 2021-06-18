@@ -25,10 +25,10 @@ def _agent_factory_hack(model_path, config, autopilot):
     """
     These imports before carla.Client() cause seg faults...
     """
-    from bird_view.models.roaming import RoamingAgentMine
+    from data_collector import NoisyAgent
 
     if autopilot:
-        return RoamingAgentMine
+        return NoisyAgent
 
     import torch
 
@@ -63,7 +63,10 @@ def _agent_factory_hack(model_path, config, autopilot):
 def run(model_path, port, suite, big_cam, seed, autopilot, resume, max_run=10, show=False, move_camera=False,
         use_cv=False, trained_cv=False):
     log_dir = model_path.parent
-    config = bzu.load_json(str(log_dir / 'config.json'))
+
+    config = None
+    if not autopilot:
+        config = bzu.load_json(str(log_dir / 'config.json'))
 
     total_time = 0.0
 

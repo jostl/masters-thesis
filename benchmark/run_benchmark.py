@@ -240,7 +240,10 @@ def run_single(env, weather, start, target, agent_maker, seed, autopilot, show=F
         i = 0 if not move_camera else i + 1
 
         observations = env.get_observations()
-        control = agent.run_step(observations)
+        if autopilot:
+            control, _, _, _ = agent.run_step(observations)
+        else:
+            control = agent.run_step(observations)
         diagnostic = env.apply_control(control)
 
         _paint(observations, control, diagnostic, agent.debug, env, show=show, use_cv=use_cv, trained_cv=trained_cv)
