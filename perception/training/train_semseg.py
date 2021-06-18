@@ -180,7 +180,7 @@ def main():
     dataloaders = create_dataloaders(path=path, validation_set_size=validation_set_size,
                                                              semantic_classes=semantic_classes,
                                                              batch_size=batch_size, max_n_instances=max_n_instances,
-                                                             augment_strategy=augment_strategy, num_workers=4)
+                                                             augment_strategy=augment_strategy, num_workers=0)
 
     save_model_weights = True
     display_img_after_epoch = True
