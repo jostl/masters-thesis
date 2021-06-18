@@ -1,3 +1,5 @@
+# Code inspired by the minimal PPO implementation of Nikhil Barhate https://github.com/nikhilbarhate99/PPO-PyTorch
+
 import glob
 import os
 import sys
