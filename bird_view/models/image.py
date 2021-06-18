@@ -91,19 +91,16 @@ class ImagePolicyModelSS(common.ResnetBase):
 
 
 class FullModel(nn.Module):
-    def __init__(self, backbone, all_branch=False, image_pretrained=False, image_ckpt="", **kwargs):
+    def __init__(self, backbone, all_branch=False, image_pretrained=False, ckpt="", **kwargs):
         super(FullModel, self).__init__()
         #self.depth_model = createUNet()
         #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_best_weights.pt"))'
         self.depth_model = createUNetResNet()
-        #self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_resnet34_pretrained_best_weights.pt"))
         self.depth_model.load_state_dict(torch.load("models/perception/depth/unet_resnet34_pretrained_retrained.pt"))
         self.depth_model.eval()
 
         self.semseg_model = createUNetResNetSemSeg(len(DEFAULT_CLASSES) + 1)
-        #self.semseg_model.load_state_dict(torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_5_epoch-29.pt"))
-        self.semseg_model.load_state_dict(
-            torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_retrained.pt"))
+        self.semseg_model.load_state_dict(torch.load("models/perception/segmentation/unet_resnet50_weighted_tlights_retrained.pt"))
         self.semseg_model.eval()
 
         self.return_cv_preds = True
@@ -120,8 +117,8 @@ class FullModel(nn.Module):
         self.image_model = ImagePolicyModelSS(backbone,
                                               pretrained=image_pretrained,
                                               all_branch=all_branch, input_channel=len(DEFAULT_CLASSES) + 5)
-        if image_ckpt:
-            self.image_model.load_state_dict(torch.load(image_ckpt))
+        if ckpt:
+            self.image_model.load_state_dict(torch.load(ckpt))
         self.all_branch = all_branch
 
     def forward(self, rgb_raw, velocity, command):
@@ -154,7 +151,7 @@ class ImageAgent(Agent):
             # original LBC steer points
             steer_points = {"1": 4, "2": 3, "3": 2, "4": 2}
 
-            # reproduce steer points
+            # reproduce_wrong_pid steer points
             #steer_points = {"1": 4, "2": 3, "3": 2, "4": 3}
 
         if pid is None:
@@ -174,20 +171,12 @@ class ImageAgent(Agent):
             #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
             #}
 
-            # Reproduction pid
-            #pid = {
-            #    "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
-            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
-            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
-            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
-            #}
-
             # Reproduction_wrong_pid model-10 pid
             #pid = {
             #    "1": {"Kp": 0.7, "Ki": 0.25, "Kd": 0.0},  # Left
             #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
             #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
-            #    "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
+            #    "4": {"Kp": 0.75, "Ki": 0.45, "Kd": 0.0},  # Follow
             #}
 
             # Old Reproduction model-10 pid
@@ -203,8 +192,13 @@ class ImageAgent(Agent):
         self.turn_control = CustomController(pid)
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
 
+        # original LBC thresholds
         self.engine_brake_threshold = 2
         self.brake_threshold = 2
+
+        # reproduction wrong_pid thresholds
+        #self.engine_brake_threshold = 1.5
+        #self.brake_threshold = 1.5
 
         self.last_brake = -1
         self.use_cv = use_cv

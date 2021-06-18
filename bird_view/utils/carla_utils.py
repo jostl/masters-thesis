@@ -423,6 +423,7 @@ class CarlaWrapper(object):
         _blueprints = self._blueprints.filter('vehicle.*')
         if self.disable_two_wheels:
             _blueprints = [x for x in _blueprints if int(x.get_attribute('number_of_wheels')) == 4]
+
         if True:
             blueprints = []
             for blueprint in _blueprints:
@@ -430,6 +431,7 @@ class CarlaWrapper(object):
                     blueprints.append(blueprint)
         else:
             blueprints = _blueprints
+
         spawn_points = self._map.get_spawn_points()
         batch = []
         for i in range(self.n_vehicles):
