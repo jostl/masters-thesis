@@ -64,9 +64,9 @@ class PointGoalSuite(BaseSuite):
 
         return result
 
-    def get_observations(self):
+    def get_observations(self, include_hero=False):
         result = dict()
-        result.update(super().get_observations())
+        result.update(super().get_observations(include_hero=include_hero))
         result['command'] = int(self.command)
         result['node'] = np.array([self.node.x, self.node.y])
         result['next'] = np.array([self._next.x, self._next.y])

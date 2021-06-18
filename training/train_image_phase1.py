@@ -255,6 +255,7 @@ def train_or_eval(coord_converter, criterion, net, teacher_net, data, optim, is_
 
 
 def train(config):
+
     use_cv = config["agent_args"]["use_cv"]
     trained_cv = config["agent_args"]["trained_cv"]
     assert not (use_cv and trained_cv), "Cannot use ground truth CV and trained CV at the same time."

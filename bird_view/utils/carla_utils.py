@@ -52,7 +52,8 @@ COLORS = [
         (250, 210, 1),
         (39, 232, 51),
         (0, 0, 142),
-        (220, 20, 60)
+        (220, 20, 60),
+        (0, 255, 0)
         ]
 
 
@@ -106,14 +107,16 @@ def carla_img_to_np(carla_img, converter='raw'):
     return img
 
 
-def get_birdview(observations):
+def get_birdview(observations, include_hero=False):
     birdview = [
             observations['road'],
             observations['lane'],
             observations['traffic'],
             observations['vehicle'],
-            observations['pedestrian']
+            observations['pedestrian'],
             ]
+    if include_hero:
+        birdview.append(observations['hero'])
     birdview = [x if x.ndim == 3 else x[...,None] for x in birdview]
     birdview = np.concatenate(birdview, 2)
 
@@ -165,12 +168,12 @@ def visualize_birdview(birdview):
     4 green light
     5 vehicle
     6 pedestrian
+    7 hero
     """
-    h, w = birdview.shape[:2]
+    h, w, c = birdview.shape
     canvas = np.zeros((h, w, 3), dtype=np.uint8)
     canvas[...] = BACKGROUND
-
-    for i in range(len(COLORS)):
+    for i in range(c):
         canvas[birdview[:,:,i] > 0] = COLORS[i]
 
     return canvas
@@ -566,6 +569,7 @@ class CarlaWrapper(object):
         self._player.set_autopilot(False)
         #self._player.start_dtcrowd()
         self._actor_dict['player'].append(self._player)
+        print("Hero vehicle spawned")
 
     def move_spectator_to_player(self):
         # move spectator to vehicle
@@ -630,13 +634,13 @@ class CarlaWrapper(object):
 
         return True
 
-    def get_observations(self):
+    def get_observations(self, include_hero=False):
         result = dict()
         result.update(map_utils.get_observations())
         # print ("%.3f, %.3f"%(self.rgb_image.timestamp, self._world.get_snapshot().timestamp.elapsed_seconds))
         result.update({
             'rgb': carla_img_to_np(self.rgb_image),
-            'birdview': get_birdview(result),
+            'birdview': get_birdview(result, include_hero=include_hero),
             'collided': self.collided
             })
         if self.use_cv:

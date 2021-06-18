@@ -30,32 +30,33 @@ from perception.vehicle_spawner import VehicleSpawner
 from utils.carla_utils import PRESET_WEATHERS
 
 # We want to get a deterministic output
-random.seed(4)
 
 FPS = 10
 TIMEOUT = 2
-SENSOR_TICK = 30.0  # Seconds between each sensor tick
+SENSOR_TICK = 40  # Seconds between each sensor tick
 
 TRAINING_WEATHERS = [1, 3, 6, 8]
-TEST_WEATHERS = [10, 14]
+TEST_WEATHERS = [4, 10, 14]
 ALL_WEATHERS = TRAINING_WEATHERS + TEST_WEATHERS
 
 
-def spawn_sensors(world: carla.World, actor: carla.Actor) -> Dict[str, carla.Sensor]:
+def spawn_sensors(world: carla.World, actor: carla.Actor):
     sensors = {}
     blueprints = {
         "rgb": world.get_blueprint_library().find('sensor.camera.rgb'),
         "segmentation": world.get_blueprint_library().find('sensor.camera.semantic_segmentation'),
         "depth": world.get_blueprint_library().find('sensor.camera.depth')
     }
+    bad_vehicles = ["vehicle.carlamotors.carlacola", "vehicle.tesla.cybertruck",
+                    "vehicle.chargercop2020.chargercop2020"]
 
     # the camera placement is very weird on this car
-    if actor.type_id == "vehicle.carlamotors.carlacola":
-        return sensors
+    if actor.type_id in bad_vehicles or actor.type_id.endswith("isetta"):
+        return False, sensors
 
     fov = 90
-    yaw = random.gauss(0, 45)
-    sensor_transform = carla.Transform(carla.Location(0, 0, 3), carla.Rotation(0, yaw, 0))
+    # yaw = random.gauss(0, 30)
+    sensor_transform = carla.Transform(carla.Location(1, 0, 1.4), carla.Rotation(0, 0, 0))
     for sensor_name, blueprint in blueprints.items():
         blueprint.set_attribute("image_size_x", "384")
         blueprint.set_attribute("image_size_y", "160")
@@ -63,7 +64,7 @@ def spawn_sensors(world: carla.World, actor: carla.Actor) -> Dict[str, carla.Sen
         blueprint.set_attribute("sensor_tick", str(SENSOR_TICK))  # Get new data every x second
         sensor: carla.Sensor = world.spawn_actor(blueprint, sensor_transform, attach_to=actor)
         sensors[sensor_name] = sensor
-    return sensors
+    return True, sensors
 
 
 def retrieve_data(frame, sensor_queue, timeout) -> carla.Image:
@@ -90,14 +91,15 @@ def clamp(value, minimum=0.0, maximum=100.0):
     return max(minimum, min(value, maximum))
 
 
-def spawn_vehicles(client, world, n_vehicles):
+def spawn_vehicles(client, world, n_vehicles, n_data_collection_vehicles=35):
     SpawnActor = carla.command.SpawnActor
     SetAutoPilot = carla.command.SetAutopilot
     FutureActor = carla.command.FutureActor
     blueprints = world.get_blueprint_library().filter('vehicle.*')
     spawn_points = world.get_map().get_spawn_points()
     batch = []
-    for i in range(n_vehicles):
+
+    for i in range(n_vehicles - n_data_collection_vehicles):
         blueprint = np.random.choice(blueprints)
         blueprint.set_attribute('role_name', 'autopilot')
 
@@ -112,13 +114,37 @@ def spawn_vehicles(client, world, n_vehicles):
         spawn_point = spawn_points.pop(random.randrange(len(spawn_points)))
         spawn_command = SpawnActor(blueprint, spawn_point).then(SetAutoPilot(FutureActor, True))
         batch.append(spawn_command)
+    data_collection_batch = []
+    good_vehicles = ["vehicle.mustang.mustang", "vehicle.lincoln2020.mkz2020",
+                     "vehicle.chevrolet.impala", "vehicle.audi.tt", "vehicle.mini.cooperst"]
+    for i in range(n_data_collection_vehicles):
+        blueprint = blueprints.find(random.choice(good_vehicles))
+        # blueprint = blueprints.find("vehicle.mustang.mustang")
+        blueprint.set_attribute('role_name', 'autopilot')
+
+        if blueprint.has_attribute('color'):
+            color = np.random.choice(blueprint.get_attribute('color').recommended_values)
+            blueprint.set_attribute('color', color)
+
+        if blueprint.has_attribute('driver_id'):
+            driver_id = np.random.choice(blueprint.get_attribute('driver_id').recommended_values)
+            blueprint.set_attribute('driver_id', driver_id)
+        spawn_point = spawn_points.pop(random.randrange(len(spawn_points)))
+        spawn_command = SpawnActor(blueprint, spawn_point).then(SetAutoPilot(FutureActor, True))
+        data_collection_batch.append(spawn_command)
+
     responses = client.apply_batch_sync(batch, True)
     actor_ids = []
     for response in responses:
         actor_ids.append(response.actor_id)
 
+    data_collection_ids = []
+    responses = client.apply_batch_sync(data_collection_batch, True)
+    for response in responses:
+        actor_ids.append(response.actor_id)
+        data_collection_ids.append(response.actor_id)
     print("spawned %d vehicles" % len(actor_ids))
-    return actor_ids
+    return actor_ids, data_collection_ids
 
 
 def spawn_pedestrians(client, world, n_pedestrians):
@@ -184,6 +210,7 @@ def spawn_pedestrians(client, world, n_pedestrians):
 weather_names = {
     1: 'clear_noon',
     3: 'wet_noon',
+    4: 'wet_cloudy_noon',
     6: 'hardrain_noon',
     8: 'clear_sunset',
     10: "after_rain_sunset",
@@ -194,20 +221,19 @@ weather_names = {
 def main():
     town = "Town01"
     weathers = TRAINING_WEATHERS
-    #weathers = TEST_WEATHERS
+    # weathers = TEST_WEATHERS
     client = carla.Client("127.0.0.1", 2000)
     client.set_timeout(10.0)
     traffic_manager: carla.TrafficManager = client.get_trafficmanager()
     traffic_manager.set_global_distance_to_leading_vehicle(2.0)
     traffic_manager.global_percentage_speed_difference(25.0)
 
-    folder_name = "train50k"
+    folder_name = "train_new_height"
 
     n_vehicles = 100
     n_pedestrians = 250
-    total_images = 50000
+    total_images = 20000
     n_images_per_weather = total_images // len(weathers)
-    n_images_per_vehicle_per_weather = n_images_per_weather // n_vehicles
 
     print(f"Loading {town}")
     client.load_world(town)
@@ -222,9 +248,8 @@ def main():
         progress = tqdm.tqdm(range(n_images_per_weather), desc=weather_name)
 
         world.set_weather(PRESET_WEATHERS[weather])
-        vehicles_list = spawn_vehicles(client, world, n_vehicles)
+        vehicles_list, data_collection_list = spawn_vehicles(client, world, n_vehicles)
         walkers, walker_controllers = spawn_pedestrians(client, world, n_pedestrians)
-
 
         # print("Running the world for 5 seconds before capturing...")
         frame = start_frame
@@ -234,23 +259,28 @@ def main():
 
         all_sensors: List[carla.Sensor] = []
         vehicle_sensor_queues: Dict[int, Dict[str, Tuple[Queue, carla.Sensor]]] = {}
-        for vehicle_id in vehicles_list:
-            vehicle = world.get_actor(vehicle_id)
-            sensors = spawn_sensors(world, vehicle)
 
-            for sensor_name, sensor in sensors.items():
-                all_sensors.append(sensor)
-                queue = Queue()
-                sensor.listen(queue.put)
-                if vehicle_id not in vehicle_sensor_queues:
-                    vehicle_sensor_queues[vehicle_id] = {}
-                vehicle_sensor_queues[vehicle_id][sensor_name] = (queue, sensor)
+        n_spawned_sensor = 0
+        for vehicle_id in data_collection_list:
+            vehicle = world.get_actor(vehicle_id)
+            success, sensors = spawn_sensors(world, vehicle)
+            if success:
+                n_spawned_sensor += 1
+                for sensor_name, sensor in sensors.items():
+                    all_sensors.append(sensor)
+                    queue = Queue()
+                    sensor.listen(queue.put)
+                    if vehicle_id not in vehicle_sensor_queues:
+                        vehicle_sensor_queues[vehicle_id] = {}
+                    vehicle_sensor_queues[vehicle_id][sensor_name] = (queue, sensor)
 
         while frame < start_frame + FPS * 5:
             frame = world.tick()
+        n_images_per_vehicle_per_weather = n_images_per_weather // n_spawned_sensor
 
         for i in range(0, n_images_per_vehicle_per_weather):
-            frame = world.tick()
+            for i in range(FPS * 5):
+                frame = world.tick()
             # print(f"Tick ({frame})")
 
             for vehicle_id, vehicle_sensors in vehicle_sensor_queues.items():
@@ -272,12 +302,12 @@ def main():
                         if not changed_yaw:
                             old_yaw = sensor.get_transform().rotation.yaw
                             new_yaw = random.gauss(0, 30)
-                            while abs(new_yaw - old_yaw) < 60:
+                            while abs(new_yaw - old_yaw) < 30:
                                 new_yaw = random.gauss(0, 30)
 
                             changed_yaw = True
 
-                        sensor.set_transform(carla.Transform(carla.Location(0, 0, 3), carla.Rotation(0, new_yaw, 0)))
+                        sensor.set_transform(carla.Transform(carla.Location(1, 0, 1.4), carla.Rotation(0, 0, 0)))
                     except Empty:
                         pass
                         # print("Empty queue")

@@ -28,7 +28,7 @@ DT = 0.1
 class PPOImageAgent(Agent):
     def __init__(self, policy_old, steer_points=None, pid=None, gap=5,
                  camera_args={'x': 384, 'h': 160, 'fov': 90, 'world_y': 1.4, 'fixed_offset': 4.0}, action_std=0.01,
-                 min_action_std=0.001, action_std_decay_rate = 0.0001,
+                 min_action_std=0.001, action_std_decay_rate = 0.0001, action_std_decay_frequency=10000,
                  **kwargs):
         super().__init__(**kwargs)
 
@@ -43,9 +43,14 @@ class PPOImageAgent(Agent):
         self.gap = gap
 
         if steer_points is None:
+            # original LBC steer points
             steer_points = {"1": 4, "2": 3, "3": 2, "4": 2}
 
+            # reproduction wrong_pid steer points
+            #steer_points = {"1": 4, "2": 3, "3": 2, "4": 3}
+
         if pid is None:
+            # original LBC pid
             pid = {
                 "1": {"Kp": 0.5, "Ki": 0.20, "Kd": 0.0},  # Left
                 "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
@@ -53,18 +58,40 @@ class PPOImageAgent(Agent):
                 "4": {"Kp": 1.0, "Ki": 0.50, "Kd": 0.0},  # Follow
             }
 
+            # Reproduction_wrong_pid model-10 pid
+            #pid = {
+            #    "1": {"Kp": 0.7, "Ki": 0.25, "Kd": 0.0},  # Left
+            #    "2": {"Kp": 0.7, "Ki": 0.10, "Kd": 0.0},  # Right
+            #    "3": {"Kp": 1.0, "Ki": 0.10, "Kd": 0.0},  # Straight
+            #    "4": {"Kp": 0.75, "Ki": 0.45, "Kd": 0.0},  # Follow
+            #}
+
         self.steer_points = steer_points
         self.turn_control = CustomController(pid)
         self.speed_control = PIDController(K_P=.8, K_I=.08, K_D=0.)
-        self.engine_brake_threshold = 2.0
-        self.brake_threshold = 2.0
+
+        # original LBC thresholds
+        self.engine_brake_threshold = 1.2
+        self.brake_threshold = 1.2
+
+        # reproduction wrong_pid thresholds
+        #self.engine_brake_threshold = 1.5
+        #self.brake_threshold = 1.5
 
         self.last_brake = -1
 
-        self.action_var = torch.full((10,), action_std * action_std)
+        a = np.linspace(min_action_std, action_std, 5)
+        b = np.zeros((5, 2))
+        b[:, 0] = a
+        b[:, 1] = a
+        b = np.ndarray.flatten(b)
+        b = b * b
+        self.action_var = torch.from_numpy(b).float()
+        self.action_var2 = torch.full((10,), action_std * action_std)
         self.action_std = action_std
         self.min_action_std = min_action_std
         self.action_std_decay_rate = action_std_decay_rate
+        self.action_std_decay_frequency = action_std_decay_frequency
 
     def run_step(self, observations):
         rgb = observations['rgb'].copy()
@@ -184,6 +211,9 @@ class PPOImageAgent(Agent):
         # Get the log of the probability density function evaluated at each 'action' in this batch
         action_logprob = dist.log_prob(action.squeeze().view((batch_size, n_waypoints * 2)))
 
+        _action_mean_view = action_mean_view.cpu().detach().numpy()[0]
+        _action_logprob = action_logprob.cpu().detach().numpy()[0]
+
         # Get the entropy of the distribution
         dist_entropy = dist.entropy()
 
@@ -214,3 +244,10 @@ class PPOImageAgent(Agent):
     def decay_action_std(self):
         self.action_std = max(self.action_std - self.action_std_decay_rate, self.min_action_std)
         self.action_std = round(self.action_std, 4)
+        a = np.linspace(self.min_action_std, self.action_std, 5)
+        b = np.zeros((5, 2))
+        b[:, 0] = a
+        b[:, 1] = a
+        b = np.ndarray.flatten(b)
+        b = b * b
+        self.action_var = torch.from_numpy(b).float()
